@@ -25,9 +25,11 @@
 #include <platform/tmu.h>
 #include <platform/dfd.h>
 #include <platform/ldfw.h>
+#include <platform/device_info.h>
 
 #include <lib/font_display.h>
 #include <lib/logo_display.h>
+#include <lk3rd/boot_reason.h>
 #include <target/dpu_config.h>
 #include <stdio.h>
 
@@ -41,9 +43,15 @@ unsigned int s5p_chip_id[4] = {0x0, 0x0, 0x0, 0x0};
 unsigned int charger_mode = 0;
 unsigned int board_id = 0;
 unsigned int board_rev = 0;
-unsigned int dram_info[24] = {0, 0, 0, 0};
+static unsigned int dram_raw_info[24] = {0, 0, 0, 0};
 unsigned long long dram_size_info = 0;
 unsigned int secure_os_loaded = 0;
+char enter_reason_c[ENTER_REASON_SIZE];
+char *enter_reason = &enter_reason_c[0];
+static char dram_type[16] = "UNKNOWN";
+static char dram_manufacturer[20] = "UNKNOWN";
+struct ram_info dram_info = {0, dram_manufacturer, dram_type};
+struct ufs_device_info ufs_info = {0, (char *)"UNKNOWN UFS MANUFACTURER"};
 
 unsigned int get_charger_mode(void)
 {
@@ -58,24 +66,26 @@ static void read_chip_id(void)
 
 static void read_dram_info(void)
 {
-	char type[16];
 	char rank_num[20];
-	char manufacturer[20];
+#ifdef CONFIG_EXYNOS_BOOTLOADER_DISPLAY
 	unsigned int M5 = 0, M6 = 0, M7 = 0, M8 = 0;
+#endif
 	unsigned int tmp = 0;
+
+	(void)rank_num;
 
 	printf("%s %d\n", __func__, __LINE__);
 	/* 1. Type */
-	dram_info[0] = readl(DRAM_INFO);
-	tmp = dram_info[0] & 0xF;
+	dram_raw_info[0] = readl(DRAM_INFO);
+	tmp = dram_raw_info[0] & 0xF;
 	printf("%s %d\n", __func__, __LINE__);
 
 	switch (tmp) {
 	case 0x0:
-		strcpy(type, "LPDDR4");
+		strcpy(dram_type, "LPDDR4");
 		break;
 	case 0x2:
-		strcpy(type, "LPDDR4X");
+		strcpy(dram_type, "LPDDR4X");
 		break;
 	default:
 		printf("Type None!\n");
@@ -83,8 +93,8 @@ static void read_dram_info(void)
 
 	printf("%s %d\n", __func__, __LINE__);
 	/* 2. rank_num */
-	dram_info[0] = readl(DRAM_INFO);
-	tmp = (dram_info[0] >> 4) & 0xF;
+	dram_raw_info[0] = readl(DRAM_INFO);
+	tmp = (dram_raw_info[0] >> 4) & 0xF;
 
 	printf("%s %d\n", __func__, __LINE__);
 	switch (tmp) {
@@ -100,41 +110,43 @@ static void read_dram_info(void)
 
 	printf("%s %d\n", __func__, __LINE__);
 	/* 3. manufacturer */
-	dram_info[0] = readl(DRAM_INFO);
-	tmp = (dram_info[0] >> 8) & 0xFF;
+	dram_raw_info[0] = readl(DRAM_INFO);
+	tmp = (dram_raw_info[0] >> 8) & 0xFF;
+#ifdef CONFIG_EXYNOS_BOOTLOADER_DISPLAY
 	M5 = tmp;
+#endif
 
 	printf("%s %d\n", __func__, __LINE__);
 	switch (tmp) {
 	case 0x01:
-		strcpy(manufacturer, "Samsung");
+		strcpy(dram_manufacturer, "Samsung");
 		break;
 	case 0x06:
-		strcpy(manufacturer, "SK hynix");
+		strcpy(dram_manufacturer, "SK hynix");
 		break;
 	case 0xFF:
-		strcpy(manufacturer, "Micron");
+		strcpy(dram_manufacturer, "Micron");
 		break;
 	default:
 		printf("Manufacturer None!\n");
 	}
 
 	printf("%s %d\n", __func__, __LINE__);
-	dram_info[1] = readl(DRAM_INFO + 0x4);
-	dram_info[2] = readl(DRAM_SIZE_INFO);
-	dram_info[3] = readl(DRAM_SIZE_INFO + 0x4);
-	dram_size_info |= (unsigned long long)(dram_info[2]);
-	dram_size_info |= (unsigned long long)(dram_info[3]) << 32;
+	dram_raw_info[1] = readl(DRAM_INFO + 0x4);
+	dram_raw_info[2] = readl(DRAM_SIZE_INFO);
+	dram_raw_info[3] = readl(DRAM_SIZE_INFO + 0x4);
+	dram_size_info |= (unsigned long long)(dram_raw_info[2]);
+	dram_size_info |= (unsigned long long)(dram_raw_info[3]) << 32;
 	/* Set to GB */
 	dram_size_info = dram_size_info / 1024 / 1024 / 1024;
-
-	M6 = dram_info[1] & 0xFF;
-	M7 = (dram_info[1] >> 8) & 0xFF;
-	M8 = (dram_info[0] & 0x3) | (((dram_info[0] >> 20) & 0xF) << 2) | ((dram_info[0]  >> 16 & 0x3) << 6);
+	dram_info.ram_size = dram_size_info;
 
 #ifdef CONFIG_EXYNOS_BOOTLOADER_DISPLAY
+	M6 = dram_raw_info[1] & 0xFF;
+	M7 = (dram_raw_info[1] >> 8) & 0xFF;
+	M8 = (dram_raw_info[0] & 0x3) | (((dram_raw_info[0] >> 20) & 0xF) << 2) | ((dram_raw_info[0]  >> 16 & 0x3) << 6);
 	print_lcd(FONT_WHITE, FONT_BLACK, "DRAM %lu GB %s %s %s M5=0x%02x M6=0x%02x M7=0x%02x M8=0x%02x",
-		dram_size_info,	type, rank_num, manufacturer,
+		dram_size_info,	dram_type, rank_num, dram_manufacturer,
 		M5, M6, M7, M8);
 #endif
 }
@@ -263,7 +275,7 @@ void platform_init(void)
 		if (ret == 1)
 			ufs_init(2);
 	}
-	pit_init();
+	pit_init(get_boot_device());
 
 #ifdef CONFIG_EXYNOS_BOOTLOADER_DISPLAY
 	/* If the display_drv_init function is not called before,
