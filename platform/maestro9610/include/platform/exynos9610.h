@@ -11,6 +11,8 @@
 #ifndef __EXYNOS9610_H__
 #define __EXYNOS9610_H__
 
+#include <target/board_info.h>
+
 /* EXYNOS9610 PLL */
 #define SHARED0_PLL_9610							1
 #define SHARED1_PLL_9610							2
@@ -63,6 +65,11 @@
 #define EXYNOS9610_PWMTIMER_BASE						0x13970000
 #define EXYNOS9610_UFS_EMBEDDED_BASE						0x13520000
 #define EXYNOS9610_UFSP_EMBEDDED_BASE						0x13530000
+#define EXYNOS_ADC_BASE							0x11C30000
+#define EXYNOS9610_USB_PHY_BASE							0x131D0000
+#define EXYNOS9610_USB_LINK_BASE						0x13200000
+#define EXYNOS9610_USB_INT_NUM							186
+#define EXYNOS9610_USB_PHY_CONTROL_OFFSET					0x704
 #define EXYNOS9610_SYSREG_DPU							0x14811000
 
 /* CHIP ID */
@@ -90,6 +97,7 @@
 #define LITTLE_WDT_RESET							(1 << 23)
 #define BIG_WDT_RESET								(1 << 24)
 #define PIN_RESET								(1 << 16)
+#define REBOOT_MODE_FASTBOOT_USER						0xFA
 #define CONFIG_RAMDUMP_GPR
 #define CONFIG_RAMDUMP_MODE          	0xD
 #define CONFIG_RAMDUMP_OFFSET		(0x79000000)
