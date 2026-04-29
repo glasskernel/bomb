@@ -8,9 +8,66 @@
  * to third parties without the express written permission of Samsung Electronics.
  */
 
+#include <lk/reg.h>
 #include <dev/ufs.h>
+#include <platform/exynos9610.h>
 
 struct ufs_host;
+
+#define UFS_SCLK					133250000
+#define CNT_VAL_1US_MASK				0x3ff
+#define UFSHCI_VS_1US_TO_CNT_VAL			0x110C
+#define UFSHCI_VS_UFSHCI_V2P1_CTRL			0x118C
+#define IA_TICK_SEL					(1 << 16)
+
+#define EXYNOS9610_TOP_BASE				0x12100000
+#define EXYNOS9610_SYSREG_FSYS_BASE			0x13410000
+
+#define CLK_CON_MUX_CLKCMU_FSYS_UFS_EMBD		(EXYNOS9610_TOP_BASE + 0x1048)
+#define CLK_CON_DIV_CLKCMU_FSYS_UFS_EMBD		(EXYNOS9610_TOP_BASE + 0x1850)
+#define UFS_DMA_COHERENCY_CTRL				(EXYNOS9610_SYSREG_FSYS_BASE + 0x1010)
+
+#define UFS_GPIO_CON					(EXYNOS9610_GPIO_TOP_BASE + 0x140)
+#define UFS_GPIO_DAT					(EXYNOS9610_GPIO_TOP_BASE + 0x144)
+#define UFS_GPIO_PUD					(EXYNOS9610_GPIO_TOP_BASE + 0x148)
+
+#define UFS_CLKCMU_TIMEOUT				100
+
+static void ufs_vs_set_1us_to_cnt(struct ufs_host *ufs)
+{
+	u32 reg;
+
+	reg = readl(ufs->ioaddr + UFSHCI_VS_UFSHCI_V2P1_CTRL);
+	reg |= IA_TICK_SEL;
+	writel(reg, ufs->ioaddr + UFSHCI_VS_UFSHCI_V2P1_CTRL);
+
+	writel((UFS_SCLK / 1000000) & CNT_VAL_1US_MASK,
+	       ufs->ioaddr + UFSHCI_VS_1US_TO_CNT_VAL);
+}
+
+static void ufs_set_unipro_clk(struct ufs_host *ufs)
+{
+	int timeout = 0;
+
+	writel(2, CLK_CON_DIV_CLKCMU_FSYS_UFS_EMBD);
+	do {
+		timeout++;
+	} while ((readl(CLK_CON_DIV_CLKCMU_FSYS_UFS_EMBD) & 0x10000) &&
+		 timeout < UFS_CLKCMU_TIMEOUT);
+	if (timeout == UFS_CLKCMU_TIMEOUT)
+		printf("ERROR(UFS): divider setup timed out\n");
+
+	timeout = 0;
+	writel(1, CLK_CON_MUX_CLKCMU_FSYS_UFS_EMBD);
+	do {
+		timeout++;
+	} while ((readl(CLK_CON_MUX_CLKCMU_FSYS_UFS_EMBD) & 0x10000) &&
+		 timeout < UFS_CLKCMU_TIMEOUT);
+	if (timeout == UFS_CLKCMU_TIMEOUT)
+		printf("ERROR(UFS): mux setup timed out\n");
+
+	ufs_vs_set_1us_to_cnt(ufs);
+}
 
 int ufs_board_init(int host_index, struct ufs_host *ufs)
 {
@@ -39,7 +96,9 @@ int ufs_board_init(int host_index, struct ufs_host *ufs)
 
 	ufs->host_index = host_index;
 
-	ufs->mclk_rate = 166 * (1000 * 1000);
+	ufs->mclk_rate = UFS_SCLK;
+	ufs_set_unipro_clk(ufs);
+	ufs->gear_mode = 3;
 
 	// TODO:
 	//set_ufs_clk(host_index);
@@ -54,6 +113,20 @@ int ufs_board_init(int host_index, struct ufs_host *ufs)
 	reg &= ~(0xFF);
 	reg |= 0x33;
 	*(volatile u32 *)0x13490000 = reg;
+
+	/* UFS fixed regulator: gpg4-0 output high. */
+	reg = readl(UFS_GPIO_PUD);
+	reg &= ~0x3;
+	writel(reg, UFS_GPIO_PUD);
+
+	reg = readl(UFS_GPIO_CON);
+	reg &= ~0xF;
+	reg |= 0x1;
+	writel(reg, UFS_GPIO_CON);
+
+	reg = readl(UFS_DMA_COHERENCY_CTRL);
+	reg |= (1 << 8) | (1 << 9);
+	writel(reg, UFS_DMA_COHERENCY_CTRL);
 
 	return 0;
 }
