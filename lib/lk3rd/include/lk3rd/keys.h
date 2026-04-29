@@ -10,16 +10,36 @@
 #ifndef KEYS_H
 #define KEYS_H
 
-/* Key GPIOs */
-#define GPIO_VOLUP 3
-#define GPIO_VOLDOWN 4
-#define GPIO_POWER GPIO_VOLDOWN
+#include <target/board_info.h>
 
-/* Pinctrl banks */
-#define BANK_GPA0 0
-#define BANK_GPA1 1
-#define BANK_GPA2 2
+#ifndef VOLDOWN_GPIOCON
+#define VOLDOWN_GPIOCON 0
+#endif
 
-void setup_keys(struct exynos_gpio_bank*, int);
+#ifndef VOLDOWN_BIT
+#define VOLDOWN_BIT 4
+#endif
+
+#ifndef VOLUP_GPIOCON
+#define VOLUP_GPIOCON VOLDOWN_GPIOCON
+#endif
+
+#ifndef VOLUP_BIT
+#define VOLUP_BIT (VOLDOWN_BIT - 1)
+#endif
+
+#ifndef POWER_GPIOCON
+#ifdef EXYNOS9830_GPA2CON
+#define POWER_GPIOCON EXYNOS9830_GPA2CON
+#else
+#define POWER_GPIOCON VOLDOWN_GPIOCON
+#endif
+#endif
+
+#ifndef POWER_BIT
+#define POWER_BIT VOLDOWN_BIT
+#endif
+
+void setup_key(struct exynos_gpio_bank *bank, int gpio);
 
 #endif /* KEYS_H */
