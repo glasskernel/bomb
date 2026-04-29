@@ -1,0 +1,175 @@
+/*
+ * Generic DWC3 fastboot glue for Exynos 9610/9611.
+ */
+
+#include <dev/rpmb.h>
+#include <dev/scsi.h>
+#include <dev/usb/dwc3-config.h>
+#include <dev/usb/fastboot.h>
+#include <dev/usb/gadget.h>
+#include <dev/usb/phy-samsung-usb-cal.h>
+#include <lk/init.h>
+#include <lk/reg.h>
+#include <malloc.h>
+#include <platform/chip_id.h>
+#include <platform/sfr.h>
+#include <stdio.h>
+#include <string.h>
+
+static const char vendor_str[] = "Samsung - " PLATFORM;
+static const char product_str[] = TARGET " - lk3rd";
+static char serial_id[17] = "No Serial";
+
+static unsigned int dwc3_isr_num = EXYNOS9610_USB_INT_NUM + 32;
+
+int gadget_get_vendor_string(void)
+{
+	return get_str_id(vendor_str, strlen(vendor_str));
+}
+
+int gadget_get_product_string(void)
+{
+	return get_str_id(product_str, strlen(product_str));
+}
+
+static void reverse_serialno_string(void)
+{
+	char tmp[17];
+	int i;
+
+	memcpy(tmp, serial_id, sizeof(serial_id));
+
+	for (i = 0; i < 16; i++)
+		serial_id[i] = tmp[15 - i];
+}
+
+static const char *make_serial_string(void)
+{
+	u8 i, j;
+	int chip_id[2];
+
+	if (strcmp(serial_id, "No Serial"))
+		return serial_id;
+
+	chip_id[0] = readl(EXYNOS9610_PRO_ID + CHIPID0_OFFSET);
+	chip_id[1] = readl(EXYNOS9610_PRO_ID + CHIPID1_OFFSET) & 0xFFFF;
+
+	for (j = 0; j < 2; j++) {
+		u32 hex = chip_id[j];
+		char *str = &serial_id[j * 8];
+
+		for (i = 0; i < 8; i++) {
+			if ((hex & 0xF) > 9)
+				*str++ = 'a' + (hex & 0xF) - 10;
+			else
+				*str++ = '0' + (hex & 0xF);
+			hex >>= 4;
+		}
+	}
+
+	reverse_serialno_string();
+
+	return serial_id;
+}
+
+int gadget_get_serial_string(void)
+{
+	return get_str_id(make_serial_string(), 16);
+}
+
+const char *fastboot_get_product_string(void)
+{
+	return product_str;
+}
+
+const char *fastboot_get_serialno_string(void)
+{
+	return make_serial_string();
+}
+
+int dwc3_plat_init(struct dwc3_plat_config *plat_config)
+{
+	plat_config->base = (void *)EXYNOS9610_USB_LINK_BASE;
+	plat_config->num_hs_phy = 1;
+	plat_config->array_intr = &dwc3_isr_num;
+	plat_config->num_intr = 1;
+	strcpy(plat_config->ssphy_type, "snps_gen1");
+
+	return 0;
+}
+
+static struct dwc3_dev_config dwc3_dev_config = {
+	.speed = "high",
+	.m_uEventBufDepth = 64,
+	.m_uCtrlBufSize = 128,
+	.m_ucU1ExitValue = 10,
+	.m_usU2ExitValue = 257,
+};
+
+int dwc3_dev_plat_init(void **base_addr, struct dwc3_dev_config **plat_config)
+{
+	*base_addr = (void *)EXYNOS9610_USB_LINK_BASE;
+	*plat_config = &dwc3_dev_config;
+
+	return 0;
+}
+
+static struct exynos_usb_tune_param usbcal_20phy_tune[] = {
+	{ .name = "tx_pre_emp", .value = 0x3, },
+	{ .name = "tx_pre_emp_plus", .value = 0x0, },
+	{ .name = "tx_vref", .value = 0xf, },
+	{ .name = "rx_sqrx", .value = 0x7, },
+	{ .name = "tx_rise", .value = 0x3, },
+	{ .name = "compdis", .value = 0x7, },
+	{ .name = "tx_hsxv", .value = 0x3, },
+	{ .name = "tx_fsls", .value = 0x3, },
+	{ .name = "tx_res", .value = 0x3, },
+	{ .name = "utim_clk", .value = USBPHY_UTMI_PHYCLOCK, },
+	{ .value = EXYNOS_USB_TUNE_LAST, },
+};
+
+static struct exynos_usbphy_info usbphy_cal_info = {
+	.version = EXYNOS_USBCON_VER_03_0_0,
+	.refclk = USBPHY_REFCLK_DIFF_26MHZ,
+	.refsel = USBPHY_REFSEL_CLKCORE,
+	.not_used_vbus_pad = true,
+	.use_io_for_ovc = 0,
+	.regs_base = (void *)EXYNOS9610_USB_PHY_BASE,
+	.tune_param = usbcal_20phy_tune,
+	.used_phy_port = 0,
+	.hs_rewa = 1,
+};
+
+static void register_phy_cal_infor(uint level)
+{
+	phy_usb_exynos_register_cal_infor(&usbphy_cal_info);
+}
+LK_INIT_HOOK(register_phy_cal_infor, &register_phy_cal_infor,
+	     LK_INIT_LEVEL_KERNEL);
+
+void phy_usb_exynos_system_init(int num_phy_port, bool en)
+{
+	writel(en ? 1 : 0, EXYNOS9610_POWER_BASE + EXYNOS9610_USB_PHY_CONTROL_OFFSET);
+}
+
+void exynos_usb_cci_control(int on_off)
+{
+}
+
+void platform_prepare_reboot(void)
+{
+	scsi_do_ssu();
+}
+
+void platform_do_reboot(const char *cmd_buf)
+{
+	if (!memcmp(cmd_buf, "reboot-bootloader", strlen("reboot-bootloader")) ||
+	    !memcmp(cmd_buf, "reboot-fastboot", strlen("reboot-fastboot")))
+		writel(REBOOT_MODE_FASTBOOT_USER, EXYNOS_POWER_SYSIP_DAT0);
+	else
+		writel(0, EXYNOS_POWER_SYSIP_DAT0);
+
+	writel(0, CONFIG_RAMDUMP_SCRATCH);
+	writel(0, EXYNOS_POWER_RST_STAT);
+	writel(1, EXYNOS9610_SWRESET);
+}
