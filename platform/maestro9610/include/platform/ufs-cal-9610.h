@@ -5,12 +5,24 @@ struct uic_pwr_mode {
 	u8 hs_series;
 };
 
+enum {
+	HOST_EMBD = 0,
+	HOST_CARD = 1,
+};
+
 struct ufs_cal_param {
 	void *host;		/* Host adaptor */
 	u8 available_lane;
+	u8 connected_tx_lane;
+	u8 connected_rx_lane;
+	u8 active_tx_lane;
+	u8 active_rx_lane;
 	u8 target_lane;
 	u32 mclk_rate;
+	u8 tbl;
 	u8 board;
+	u8 evt_ver;
+	u8 max_gear;
 	struct uic_pwr_mode *pmd;
 };
 
