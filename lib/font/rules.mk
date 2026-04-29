@@ -2,6 +2,8 @@ LOCAL_DIR := $(GET_LOCAL_DIR)
 
 MODULE := $(LOCAL_DIR)
 
+BOOTLOADER_FB_ADDRESS ?= 0xf1000000
+
 MODULE_SRCS += \
 	$(LOCAL_DIR)/exynos_font.c \
 
