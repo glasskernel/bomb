@@ -93,6 +93,8 @@ uint32_t el3_verify_signature_using_image(
 /******************************************************************************/
 /* Android verified boot */
 /******************************************************************************/
+uint32_t read_secure_chip(void);
+
 void set_avbops(void);
 
 uint32_t avb_main(const char *suffix, char *cmdline, char *verifiedbootstate);
