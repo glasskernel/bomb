@@ -19,6 +19,8 @@
 int init_ldfw(u64 addr, u64 size);
 int load_keystorage(u64 addr, u64 size);
 
+static u32 ldfw_loaded;
+
 struct fw_header {
 	unsigned int magic;  /* Should be ‘0x10adab1e’ */
 	unsigned int size;
@@ -179,10 +181,16 @@ int init_ldfws(void)
 	else {
 		try = ret & 0xffff;
 		try_fail = (ret >> 16) & 0xffff;
+		ldfw_loaded = 1;
 		LDFW_INFO("ldfw: try to init %d ldfw(s). except %d ldfw " \
 			"%d ldfw(s) have been inited done.\n", \
 				try, try_fail, try - try_fail);
 	}
 
 	return 0;
+}
+
+u32 get_ldfw_load_flag(void)
+{
+	return ldfw_loaded;
 }
