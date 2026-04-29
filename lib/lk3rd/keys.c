@@ -10,22 +10,8 @@
 #include <platform/gpio.h>
 #include "include/lk3rd/keys.h"
 
-void setup_keys(struct exynos_gpio_bank *bank, int type)
+void setup_key(struct exynos_gpio_bank *bank, int gpio)
 {
-	if(type == BANK_GPA0)
-	{
-		/* Setup pullups */
-		exynos_gpio_set_pull(bank, GPIO_VOLUP, GPIO_PULL_UP);
-		exynos_gpio_set_pull(bank, GPIO_VOLDOWN, GPIO_PULL_UP);
-
-		/* Pins are buttons, so input. */
-		exynos_gpio_cfg_pin(bank, GPIO_VOLUP, GPIO_INPUT);
-		exynos_gpio_cfg_pin(bank, GPIO_VOLDOWN, GPIO_INPUT);
-	}
-	else if(type == BANK_GPA2)
-	{
-		/* Volume Down is GPIO4, same as Power Button. */
-		exynos_gpio_set_pull(bank, GPIO_POWER, GPIO_PULL_UP);
-		exynos_gpio_cfg_pin(bank, GPIO_POWER, GPIO_INPUT);
-	}
+	exynos_gpio_set_pull(bank, gpio, GPIO_PULL_UP);
+	exynos_gpio_cfg_pin(bank, gpio, GPIO_INPUT);
 }
