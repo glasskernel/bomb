@@ -24,8 +24,6 @@
 struct fdt_header *fdt_dtb;
 struct dt_table_header *dtbo_table;
 
-unsigned long simple_strtoul(const char *cp,char **endp,unsigned int base);
-
 void merge_dto_to_main_dtb(void)
 {
 	void *fdto, *merged_fdt;
@@ -173,7 +171,7 @@ int set_fdt_val(const char *path, const char *property, const char *value)
 		np++;
 		while (*np != '>') {
 			tp = np;
-			tmp = simple_strtoul(tp, (char **)&np, 0);
+			tmp = strtoul(tp, (char **)&np, 0);
 			*(uint32_t *)dp = cpu_to_be32(tmp);
 			dp  += 4;
 			len += 4;
@@ -227,5 +225,4 @@ void add_dt_memory_node(unsigned long base, unsigned int size)
 	sprintf(str, "/memory@%lx", base);
 	set_fdt_val(str, "device_type", "memory");
 }
-
 
