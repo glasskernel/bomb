@@ -12,11 +12,13 @@ ifneq (,$(EXTRA_BUILDRULES))
 -include $(EXTRA_BUILDRULES)
 endif
 
+MKBOOTIMG ?= $(shell command -v mkbootimg 2>/dev/null || echo ./tools/mkbootimg.py)
+
 $(EXTRA_LINKER_SCRIPTS):
 
 $(ANDROID_BOOT_IMAGE): $(OUTBIN_LK3RD)
 	@echo lk3rd: creating an android boot image for $(PROJECT)
-	mkbootimg --kernel $(OUTBIN_LK3RD) --ramdisk ./Resources/dummyramdisk $(MKBOOTIMG_ARGS) -o $@.tmp
+	$(MKBOOTIMG) --kernel $(OUTBIN_LK3RD) --ramdisk ./Resources/dummyramdisk $(MKBOOTIMG_ARGS) -o $@.tmp
 	@echo lk3rd: Padding image...
 	@pad_size=$$((2097152 - $$(stat -c "%s" $@.tmp))) && \
 		fallocate -l $$pad_size $@.pad
@@ -97,4 +99,3 @@ $(BUILDDIR)/include_paths.txt: $(OUTELF)
 	$(NOECHO)echo $(subst -I,,$(sort $(GLOBAL_INCLUDES))) | tr ' ' '\n' > $@
 
 #include arch/$(ARCH)/compile.mk
-
