@@ -2,7 +2,7 @@
 
 set -e
 
-boards=("maestro9610" "universal9630" "maestro9820" "smdk9830" "universal9830_bringup" "phoenix9830" "c1s" "c2s" "r8s" "x1s" "y2s" "z3s" "erd3830" "universal3830")
+boards=("maestro9610" "gta4xl" "universal9630" "maestro9820" "smdk9830" "universal9830_bringup" "phoenix9830" "c1s" "c2s" "r8s" "x1s" "y2s" "z3s" "erd3830" "universal3830")
 
 tarball=false
 user_mode=false
