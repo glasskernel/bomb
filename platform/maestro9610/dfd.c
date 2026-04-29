@@ -18,11 +18,6 @@ enum pt_reg {
 	ESR_EL1,
 };
 
-void wfi(void)
-{
-	asm volatile("wfi");
-}
-
 static void dfd_print_pcval(int nCpuId)
 {
 	u32 pc_reg;
@@ -255,17 +250,6 @@ static void dfd_print_pc_gpr_little(unsigned int nCpuId)
 #endif
 	return;
 }
-
-static const u32 dbg_base[NR_CPUS] = {
-	CPU0_DEBUG_BASE,
-	CPU1_DEBUG_BASE,
-	CPU2_DEBUG_BASE,
-	CPU3_DEBUG_BASE,
-	CPU4_DEBUG_BASE,
-	CPU5_DEBUG_BASE,
-	CPU6_DEBUG_BASE,
-	CPU7_DEBUG_BASE,
-};
 
 u32 dfd_get_pmudbg_stat(u32 cpu)
 {
