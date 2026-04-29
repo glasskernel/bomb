@@ -27,6 +27,7 @@
 #include <platform/sfr.h>
 #include <platform/smc.h>
 #include <platform/ldfw.h>
+#include <platform/delay.h>
 #include <lib/lock.h>
 #include <lib/ab_update.h>
 #include <platform/environment.h>
