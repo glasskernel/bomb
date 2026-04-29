@@ -174,6 +174,7 @@ static inline int ufs_pre_link(struct ufs_host *ufs, u8 lane)
 
 	p->mclk_rate = ufs->mclk_rate;
 	p->available_lane = lane;
+	p->target_lane = lane;
 	p->tbl = HOST_EMBD;
 
 	ret = ufs_cal_pre_link(p);
@@ -205,6 +206,7 @@ static inline int ufs_pre_gear_change(struct ufs_host *ufs,
 	int ret = 0;
 
 	p->pmd = pmd;
+	p->target_lane = pmd->lane;
 	ret = ufs_cal_pre_pmc(p);
 	if (ret != UFS_CAL_NO_ERROR) {
 		printf("ufs_pre_gear_change failed with %d!!!\n", ret);
