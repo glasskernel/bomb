@@ -27,9 +27,7 @@
 #include <stdlib.h>
 
 #include "exynos_font.h"
-#include <dpu/lcd_ctrl.h>
-
-#include <platform/mmu/cache.h>
+#include <platform/mmu/mmu_func.h>
 
 #include <target/dpu_config.h>
 
@@ -44,12 +42,15 @@
 #endif
 
 static u32 y_pos = 0;
-u32 _win_fb0 = 0xf1000000;
-extern void decon_string_update(void);
+u32 _win_fb0 = BOOTLOADER_FB_ADDRESS;
+
+__attribute__((weak)) void decon_string_update(void)
+{
+}
 
 void draw_pixel(uint32_t x, uint32_t y, uint32_t color)
 {
-	volatile u32 *_fb = (u32*)0xf1000000;
+	volatile u32 *_fb = (u32 *)(uintptr_t)_win_fb0;
 	_fb[(y + LCD_OFFSET) * LCD_WIDTH + x] = color;
 }
 
