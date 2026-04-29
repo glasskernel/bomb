@@ -9,6 +9,8 @@
  */
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <stdio.h>
 #include <types.h>
 #include <lib/console.h>
 #include <lib/fdtapi.h>
@@ -109,6 +111,9 @@ int merge_dto_to_main_dtb(unsigned int board_id, unsigned int board_rev)
 	} else {
 		printf("DPM: dpm dtb: does not exist.(%s)\n", fdt_strerror(ret));
 	}
+	free(fdto);
+	return 0;
+
 fdto_magic_err:
 	free(fdto);
 	return -EINVAL;
