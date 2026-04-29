@@ -45,5 +45,6 @@ enum {
 
 int init_ldfws(void);
 int init_keystorage(void);
+u32 get_ldfw_load_flag(void);
 #endif	/* __ASSEMBLY__ */
 #endif	/* __LDFW_H_ */
