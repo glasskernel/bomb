@@ -79,7 +79,7 @@ void do_reboot(enum action action)
 			while(true) {
 				clear_screen(FONT_BLACK);
 
-				if(!exynos_gpio_get_value((struct exynos_gpio_bank *)EXYNOS9830_GPA2CON, GPIO_POWER)) {
+				if(!exynos_gpio_get_value((struct exynos_gpio_bank *)POWER_GPIOCON, POWER_BIT)) {
 					udelay(1000000);
 					continue;
 				}
@@ -120,23 +120,25 @@ void notify_action_start(void)
 
 int fastboot_menu_entry(void *arg)
 {
-	struct exynos_gpio_bank *bank_volume = (struct exynos_gpio_bank *)EXYNOS9830_GPA0CON;
-	struct exynos_gpio_bank *bank_power = (struct exynos_gpio_bank *)EXYNOS9830_GPA2CON;
+	struct exynos_gpio_bank *bank_volup = (struct exynos_gpio_bank *)VOLUP_GPIOCON;
+	struct exynos_gpio_bank *bank_voldown = (struct exynos_gpio_bank *)VOLDOWN_GPIOCON;
+	struct exynos_gpio_bank *bank_power = (struct exynos_gpio_bank *)POWER_GPIOCON;
 	int volup, voldown, power, key_stuck = 0;
 
 	lk_time_t last_button_press = current_time(), default_repeat_delay = 400, repeat_delay = default_repeat_delay;
 	float repeat_delay_multiplier = .9;
 
-	setup_keys(bank_volume, BANK_GPA0);
-	setup_keys(bank_power, BANK_GPA2);
+	setup_key(bank_volup, VOLUP_BIT);
+	setup_key(bank_voldown, VOLDOWN_BIT);
+	setup_key(bank_power, POWER_BIT);
 	clear_screen(FONT_BLACK);
 	draw_menu(current_action);
 
 	while (true)
 	{
-		volup = exynos_gpio_get_value(bank_volume, GPIO_VOLUP);
-		voldown = exynos_gpio_get_value(bank_volume, GPIO_VOLDOWN);
-		power = exynos_gpio_get_value(bank_power, GPIO_POWER);
+		volup = exynos_gpio_get_value(bank_volup, VOLUP_BIT);
+		voldown = exynos_gpio_get_value(bank_voldown, VOLDOWN_BIT);
+		power = exynos_gpio_get_value(bank_power, POWER_BIT);
 
 		if(block_keys)
 		{
