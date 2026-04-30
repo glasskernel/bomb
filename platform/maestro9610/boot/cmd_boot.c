@@ -44,9 +44,14 @@
 #define REBOOT_MODE_RECOVERY	0xFF
 #define REBOOT_MODE_FACTORY	0xFD
 
-#if TARGET_GTA4XL
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
 #define GTA4XL_FB_BASE		BOOTLOADER_FB_ADDRESS
 #define GTA4XL_FB_SIZE		0x01400000
+#if defined(TARGET_GTA4XLWIFI)
+#define GTA4XL_ANDROID_MODEL	"SM-P610"
+#else
+#define GTA4XL_ANDROID_MODEL	"SM-P615"
+#endif
 #endif
 
 void configure_ddi_id(void);
@@ -202,7 +207,7 @@ static void set_bootargs(void)
 	bootargs_update();
 }
 
-#if TARGET_GTA4XL
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
 static int fdt_find_node(const char *alias, const char *path, const char *compat)
 {
 	const char *alias_path;
@@ -352,9 +357,10 @@ static void configure_gta4xl_bootargs(void)
 
 	snprintf(str, BUFFER_SIZE,
 		 "%s s3cfb.bootloaderfb=0x%x androidboot.hardware=exynos9610"
-		 " androidboot.em.model=SM-P615 androidboot.revision=%u"
+		 " androidboot.em.model=%s androidboot.revision=%u"
 		 " androidboot.dtbo_idx=%u",
-		 np, GTA4XL_FB_BASE, board_rev, dtbo_index);
+		 np, GTA4XL_FB_BASE, GTA4XL_ANDROID_MODEL, board_rev,
+		 dtbo_index);
 	fdt_setprop(fdt_dtb, noff, "bootargs", str, strlen(str) + 1);
 }
 #endif
@@ -476,7 +482,7 @@ static void configure_dtb(void)
 	merge_dto_to_main_dtb();
 	resize_dt(SZ_8K);
 	set_usb_serialno();
-#if TARGET_GTA4XL
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
 	configure_gta4xl_framebuffer();
 	configure_gta4xl_bootargs();
 #endif
