@@ -1,5 +1,5 @@
 /*
- * Minimal gta4xl boot policy.
+ * Minimal gta4xl family boot policy.
  *
  * This keeps the first Exynos 9611 bring-up path small: volume-down enters
  * fastboot, otherwise the existing 9610 boot command is used.
@@ -33,13 +33,14 @@ int boot_fb_continue(void)
 
 int boot_fb_boot(unsigned long buf_addr, size_t size)
 {
-	printf("fastboot boot is not wired for gta4xl yet\n");
+	printf("fastboot boot is not wired for %s yet\n", CONFIG_BOARD_NAME);
 	return -1;
 }
 
 void mainline_boot_fb_boot(unsigned long buf_addr, size_t size)
 {
-	printf("fastboot mainline boot is not wired for gta4xl yet\n");
+	printf("fastboot mainline boot is not wired for %s yet\n",
+	       CONFIG_BOARD_NAME);
 }
 
 int debug_store_ramdump_oem(const char *cmd)
