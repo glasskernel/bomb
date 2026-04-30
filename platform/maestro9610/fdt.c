@@ -9,6 +9,7 @@
  */
 #include <lk/debug.h>
 #include <stdlib.h>
+#include <string.h>
 #include <libfdt_env.h>
 #include <fdt.h>
 #include <libfdt.h>
@@ -23,6 +24,68 @@
 
 struct fdt_header *fdt_dtb;
 struct dt_table_header *dtbo_table;
+
+#if TARGET_GTA4XL
+static int gta4xl_fdto_compatible(void *fdto)
+{
+	const char *compatible;
+	const char *name;
+	int root;
+	int len;
+
+	if (fdt_check_header(fdto) < 0)
+		return -1;
+
+	root = fdt_path_offset(fdto, "/");
+	if (root < 0)
+		return -1;
+
+	compatible = fdt_getprop(fdto, root, "compatible", &len);
+	if (!compatible || len <= 0)
+		return -1;
+
+	name = compatible;
+	while (len > 0) {
+		int slen = strlen(name) + 1;
+
+		if (strstr(name, "GTA4XL") && !strstr(name, "GTA4XLWIFI"))
+			return 1;
+
+		name += slen;
+		len -= slen;
+	}
+
+	return 0;
+}
+
+static int gta4xl_fdto_rev_match(void *fdto, u32 rev)
+{
+	const fdt32_t *prop;
+	u32 start;
+	u32 end;
+	int root;
+	int len;
+
+	if (fdt_check_header(fdto) < 0)
+		return 0;
+
+	root = fdt_path_offset(fdto, "/");
+	if (root < 0)
+		return 0;
+
+	prop = fdt_getprop(fdto, root, "dtbo-hw_rev", &len);
+	if (!prop || len < (int)sizeof(fdt32_t))
+		return 0;
+	start = fdt32_to_cpu(*prop);
+	end = start;
+
+	prop = fdt_getprop(fdto, root, "dtbo-hw_rev_end", &len);
+	if (prop && len >= (int)sizeof(fdt32_t))
+		end = fdt32_to_cpu(*prop);
+
+	return rev >= start && rev <= end;
+}
+#endif
 
 void merge_dto_to_main_dtb(void)
 {
@@ -48,10 +111,29 @@ void merge_dto_to_main_dtb(void)
 		u32 id = fdt32_to_cpu(dt_entry->id);
 		u32 rev = fdt32_to_cpu(dt_entry->rev);
 
+#if TARGET_GTA4XL
+		if (id == board_id) {
+			void *candidate = (void *)((unsigned long)dtbo_table
+					+ fdt32_to_cpu(dt_entry->dt_offset));
+			int compatible = gta4xl_fdto_compatible(candidate);
+
+			if (compatible == 1 &&
+			    ((rev == board_rev) ||
+			     gta4xl_fdto_rev_match(candidate, board_rev))) {
+				printf("DTBO: id: 0x%x, rev: 0x%x, board_rev: 0x%x\n",
+				       id, rev, board_rev);
+				break;
+			} else if (compatible < 0 && rev == board_rev) {
+				printf("DTBO: id: 0x%x, rev: 0x%x\n", id, rev);
+				break;
+			}
+		}
+#else
 		if ((id == board_id) && (rev == board_rev)) {
 			printf("DTBO: id: 0x%x, rev: 0x%x\n", id, rev);
 			break;
 		}
+#endif
 	}
 
 	if (i == fdt32_to_cpu(dtbo_table->dt_entry_count)) {
@@ -225,4 +307,3 @@ void add_dt_memory_node(unsigned long base, unsigned int size)
 	sprintf(str, "/memory@%lx", base);
 	set_fdt_val(str, "device_type", "memory");
 }
-
