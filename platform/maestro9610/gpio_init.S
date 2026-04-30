@@ -73,7 +73,7 @@ speedy_gpio_init:
 	.global xbootldo_gpio_init
 xbootldo_gpio_init:
 	/* Set XBOOTLDO (GPG4_0) to Pull-up/down disable */
-	ldr	x0, =EXYNOS9610_GPG1PUD
+	ldr	x0, =EXYNOS9610_GPG4PUD
 	ldr	w1, [x0]
 	bic	w1, w1, #(0xF << 0)
 	str	w1, [x0]
