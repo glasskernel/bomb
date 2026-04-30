@@ -20,22 +20,65 @@
 #include <platform/ab_update.h>
 #include <platform/bootloader_message.h>
 
-int ab_set_active(int slot)
+int ab_slots_available(void)
 {
-	int other_slot = 1 - slot;
+	return pit_get_part_info("boot_a") && pit_get_part_info("boot_b");
+}
+
+static int ab_load_slot_info(void **buf_out, ExynosSlotInfo **slot_info,
+			     struct pit_entry **ptn_out)
+{
 	void *buf;
 	struct bootloader_message_ab *bm;
 	struct pit_entry *ptn;
 	ExynosBootInfo *bi;
-	ExynosSlotInfo *si;
 
 	ptn = pit_get_part_info("misc");
+	if (!ptn) {
+		printf("A/B metadata partition 'misc' does not exist\n");
+		return -1;
+	}
+
 	buf = memalign(0x1000, pit_get_length(ptn));
-	pit_access(ptn, PIT_OP_LOAD, (u64)buf, 0);
+	if (!buf) {
+		printf("Failed to allocate A/B metadata buffer\n");
+		return -1;
+	}
+
+	if (pit_access(ptn, PIT_OP_LOAD, (u64)buf, 0)) {
+		printf("Failed to load A/B metadata from 'misc'\n");
+		free(buf);
+		return -1;
+	}
 
 	bm = (struct bootloader_message_ab *)buf;
 	bi = (ExynosBootInfo *)bm->slot_suffix;
-	si = (ExynosSlotInfo *)bi->slot_info;
+
+	*buf_out = buf;
+	*slot_info = (ExynosSlotInfo *)bi->slot_info;
+	if (ptn_out)
+		*ptn_out = ptn;
+
+	return 0;
+}
+
+int ab_set_active(int slot)
+{
+	int other_slot = 1 - slot;
+	void *buf;
+	struct pit_entry *ptn;
+	ExynosSlotInfo *si;
+
+	if (!ab_slots_available()) {
+		printf("A/B boot partitions do not exist\n");
+		return -1;
+	}
+
+	if (slot < 0 || slot > 1)
+		return -1;
+
+	if (ab_load_slot_info(&buf, &si, &ptn))
+		return -1;
 
 	if ((si + other_slot)->priority == 15)
 		(si + other_slot)->priority = 14;
@@ -50,7 +93,11 @@ int ab_set_active(int slot)
 	printf("_b bootable: %d, priority %d, tries_remaining %d, boot_successful %d\n",
 			(si + 1)->bootable, (si + 1)->priority, (si + 1)->tries_remaining, (si + 1)->boot_successful);
 
-	pit_access(ptn, PIT_OP_FLASH, (u64)buf, 0);
+	if (pit_access(ptn, PIT_OP_FLASH, (u64)buf, 0)) {
+		printf("Failed to flash A/B metadata to 'misc'\n");
+		free(buf);
+		return -1;
+	}
 
 	free(buf);
 
@@ -60,19 +107,14 @@ int ab_set_active(int slot)
 int ab_current_slot(void)
 {
 	void *buf;
-	struct bootloader_message_ab *bm;
-	struct pit_entry *ptn;
-	ExynosBootInfo *bi;
 	ExynosSlotInfo *si;
 	int ret;
 
-	ptn = pit_get_part_info("misc");
-	buf = memalign(0x1000, pit_get_length(ptn));
-	pit_access(ptn, PIT_OP_LOAD, (u64)buf, 0);
+	if (!ab_slots_available())
+		return 0;
 
-	bm = (struct bootloader_message_ab *)buf;
-	bi = (ExynosBootInfo *)bm->slot_suffix;
-	si = (ExynosSlotInfo *)bi->slot_info;
+	if (ab_load_slot_info(&buf, &si, NULL))
+		return 0;
 
 	ret = ((si + 0)->priority > (si + 1)->priority) ? 0 : 1;
 
@@ -84,19 +126,14 @@ int ab_current_slot(void)
 int ab_slot_successful(int slot)
 {
 	void *buf;
-	struct bootloader_message_ab *bm;
-	struct pit_entry *ptn;
-	ExynosBootInfo *bi;
 	ExynosSlotInfo *si;
 	int ret;
 
-	ptn = pit_get_part_info("misc");
-	buf = memalign(0x1000, pit_get_length(ptn));
-	pit_access(ptn, PIT_OP_LOAD, (u64)buf, 0);
+	if (!ab_slots_available() || slot < 0 || slot > 1)
+		return 0;
 
-	bm = (struct bootloader_message_ab *)buf;
-	bi = (ExynosBootInfo *)bm->slot_suffix;
-	si = (ExynosSlotInfo *)bi->slot_info;
+	if (ab_load_slot_info(&buf, &si, NULL))
+		return 0;
 
 	ret = (si + slot)->boot_successful;
 
@@ -108,19 +145,14 @@ int ab_slot_successful(int slot)
 int ab_slot_unbootable(int slot)
 {
 	void *buf;
-	struct bootloader_message_ab *bm;
-	struct pit_entry *ptn;
-	ExynosBootInfo *bi;
 	ExynosSlotInfo *si;
 	int ret;
 
-	ptn = pit_get_part_info("misc");
-	buf = memalign(0x1000, pit_get_length(ptn));
-	pit_access(ptn, PIT_OP_LOAD, (u64)buf, 0);
+	if (!ab_slots_available() || slot < 0 || slot > 1)
+		return 1;
 
-	bm = (struct bootloader_message_ab *)buf;
-	bi = (ExynosBootInfo *)bm->slot_suffix;
-	si = (ExynosSlotInfo *)bi->slot_info;
+	if (ab_load_slot_info(&buf, &si, NULL))
+		return 1;
 
 	ret = (si + slot)->bootable ? 0 : 1;
 
@@ -132,19 +164,14 @@ int ab_slot_unbootable(int slot)
 int ab_slot_retry_count(int slot)
 {
 	void *buf;
-	struct bootloader_message_ab *bm;
-	struct pit_entry *ptn;
-	ExynosBootInfo *bi;
 	ExynosSlotInfo *si;
 	int ret;
 
-	ptn = pit_get_part_info("misc");
-	buf = memalign(0x1000, pit_get_length(ptn));
-	pit_access(ptn, PIT_OP_LOAD, (u64)buf, 0);
+	if (!ab_slots_available() || slot < 0 || slot > 1)
+		return 0;
 
-	bm = (struct bootloader_message_ab *)buf;
-	bi = (ExynosBootInfo *)bm->slot_suffix;
-	si = (ExynosSlotInfo *)bi->slot_info;
+	if (ab_load_slot_info(&buf, &si, NULL))
+		return 0;
 
 	ret = (si + slot)->tries_remaining;
 
