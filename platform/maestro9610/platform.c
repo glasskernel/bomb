@@ -59,7 +59,7 @@ unsigned int get_charger_mode(void)
 	return charger_mode;
 }
 
-#if TARGET_GTA4XL
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
 static void read_gta4xl_board_rev(void)
 {
 	struct exynos_gpio_bank *bank =
@@ -75,7 +75,8 @@ static void read_gta4xl_board_rev(void)
 
 	board_id = CONFIG_BOARD_ID;
 	board_rev = rev;
-	printf("gta4xl board id/rev: 0x%x/0x%x\n", board_id, board_rev);
+	printf("%s board id/rev: 0x%x/0x%x\n", CONFIG_BOARD_NAME,
+	       board_id, board_rev);
 }
 #endif
 
@@ -259,7 +260,7 @@ void platform_early_init(void)
 	unsigned int rst_stat = readl(EXYNOS9610_POWER_RST_STAT);
 
 	read_chip_id();
-#if TARGET_GTA4XL
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
 	read_gta4xl_board_rev();
 #endif
 
