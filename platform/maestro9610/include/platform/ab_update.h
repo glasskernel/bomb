@@ -53,6 +53,7 @@ static_assert(sizeof(struct ExynosBootInfo) == 32,
 #endif
 
 int ab_set_active(int slot);
+int ab_slots_available(void);
 int ab_current_slot(void);
 int ab_slot_successful(int slot);
 int ab_slot_unbootable(int slot);
