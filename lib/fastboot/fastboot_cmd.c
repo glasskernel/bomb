@@ -21,9 +21,11 @@
 #include <kernel/thread.h>
 #include <lib/console.h>
 #include <lib/font_display.h>
+#include <stdio.h>
 //#include <lib/fastboot.h>
 #include <part.h>
 #include <pit.h>
+#include <platform/gpio.h>
 #include <platform/sfr.h>
 #include <platform/smc.h>
 #include <platform/ldfw.h>
@@ -45,6 +47,7 @@
 #include <lk3rd/kaslr_status.h>
 #include <lk3rd/mainline_quirks.h>
 #include <lk3rd/fastboot_menu.h>
+#include <lk3rd/keys.h>
 
 #include "usb-def.h"
 
@@ -73,6 +76,8 @@ int extention_flag;
 static unsigned int is_ramdump = 0;
 unsigned int s_fb_on_diskdump = 0;
 static char resp_data[FB_RESPONSE_BUFFER_SIZE];
+static bool fastboot_update_seen = false;
+static bool fastboot_update_confirmed = false;
 
 int rx_handler(const unsigned char *buffer, unsigned int buffer_size);
 int fastboot_tx_mem(u64 buffer, u64 buffer_size);
@@ -309,6 +314,74 @@ bool partition_is_blocked(const char* partition)
 	return false; // Partition is not blocked
 }
 
+static int partition_has_slots(const char *name)
+{
+	char part_a[64];
+	char part_b[64];
+
+	if (snprintf(part_a, sizeof(part_a), "%s_a", name) >= (int)sizeof(part_a) ||
+		snprintf(part_b, sizeof(part_b), "%s_b", name) >= (int)sizeof(part_b))
+		return 0;
+
+	return part_get(part_a) && part_get(part_b);
+}
+
+static void fastboot_wait_for_key_release(struct exynos_gpio_bank *bank_volup,
+	struct exynos_gpio_bank *bank_voldown, struct exynos_gpio_bank *bank_power)
+{
+	while (!exynos_gpio_get_value(bank_volup, VOLUP_BIT) ||
+		!exynos_gpio_get_value(bank_voldown, VOLDOWN_BIT) ||
+		!exynos_gpio_get_value(bank_power, POWER_BIT)) {
+		thread_sleep(50);
+	}
+}
+
+static int fastboot_confirm_update(void)
+{
+	struct exynos_gpio_bank *bank_volup = (struct exynos_gpio_bank *)VOLUP_GPIOCON;
+	struct exynos_gpio_bank *bank_voldown = (struct exynos_gpio_bank *)VOLDOWN_GPIOCON;
+	struct exynos_gpio_bank *bank_power = (struct exynos_gpio_bank *)POWER_GPIOCON;
+	char info[FB_RESPONSE_BUFFER_SIZE];
+
+	if (!fastboot_update_seen || fastboot_update_confirmed)
+		return 0;
+
+	setup_key(bank_volup, VOLUP_BIT);
+	setup_key(bank_voldown, VOLDOWN_BIT);
+	setup_key(bank_power, POWER_BIT);
+
+	snprintf(info, sizeof(info), "INFOConfirm fastboot update on device");
+	fastboot_send_info(info, strlen(info));
+
+	clear_screen(FONT_BLACK);
+	print_lcd_update(FONT_RED, FONT_BLACK, "Fastboot update warning");
+	print_lcd_update(FONT_WHITE, FONT_BLACK, "");
+	print_lcd_update(FONT_WHITE, FONT_BLACK, "Are you sure you want to update?");
+	print_lcd_update(FONT_YELLOW, FONT_BLACK, "This may make your system unbootable.");
+	print_lcd_update(FONT_YELLOW, FONT_BLACK, "Do not unplug the cable.");
+	print_lcd_update(FONT_WHITE, FONT_BLACK, "");
+	print_lcd_update(FONT_GREEN, FONT_BLACK, "Volume Up: continue update");
+	print_lcd_update(FONT_RED, FONT_BLACK, "Volume Down or Power: cancel");
+
+	fastboot_wait_for_key_release(bank_volup, bank_voldown, bank_power);
+
+	while (true) {
+		if (!exynos_gpio_get_value(bank_volup, VOLUP_BIT)) {
+			fastboot_update_confirmed = true;
+			print_lcd_update(FONT_GREEN, FONT_BLACK, "Confirmed. Starting update.");
+			return 0;
+		}
+
+		if (!exynos_gpio_get_value(bank_voldown, VOLDOWN_BIT) ||
+			!exynos_gpio_get_value(bank_power, POWER_BIT)) {
+			print_lcd_update(FONT_RED, FONT_BLACK, "Canceled. No update partition was written.");
+			return -1;
+		}
+
+		thread_sleep(100);
+	}
+}
+
 int fb_do_getvar(char *cmd_buffer, unsigned int rx_sz)
 {
 	char buf[FB_RESPONSE_BUFFER_SIZE];
@@ -322,6 +395,9 @@ int fb_do_getvar(char *cmd_buffer, unsigned int rx_sz)
 	LTRACEF("fast received cmd:%s\n", cmd_buffer);
 
 	sprintf(response,"OKAY");
+
+	if (!strcmp(variable, "version-bootloader"))
+		fastboot_update_seen = true;
 
 	switch (fastboot_variable_to_id(variable))
 	{
@@ -367,12 +443,15 @@ int fb_do_getvar(char *cmd_buffer, unsigned int rx_sz)
 		}
 
 		case SLOT_COUNT: {
-			sprintf(response + 4, "0");
+			sprintf(response + 4, "%d", partition_has_slots("boot") ? 2 : 0);
 			break;
 		}
 
 		case CURRENT_SLOT: {
-			sprintf(response + 4, " ");
+			if (partition_has_slots("boot"))
+				sprintf(response + 4, "_%c", ab_current_slot() ? 'b' : 'a');
+			else
+				sprintf(response + 4, " ");
 			break;
 		}
 
@@ -426,6 +505,20 @@ int fb_do_getvar(char *cmd_buffer, unsigned int rx_sz)
 
 			if (slot >= 0)
 				sprintf(response + 4, "%d", ab_slot_retry_count(slot));
+			break;
+		}
+
+		case HAS_SLOT: {
+			char *key;
+
+			key = strchr(variable, ':');
+			if (!key || !key[1]) {
+				sprintf(response, "FAILinvalid partition");
+				break;
+			}
+
+			key++;
+			sprintf(response + 4, "%s", partition_has_slots(key) ? "yes" : "no");
 			break;
 		}
 
@@ -576,6 +669,13 @@ int fb_do_erase(char *cmd_buffer, unsigned int rx_sz)
 	block_keys = true;
 
 	if (!strcmp(key, "wipe")) {
+		if (fastboot_confirm_update()) {
+			sprintf(response, "FAILUser canceled fastboot update");
+			fastboot_send_status(response, strlen(response), FASTBOOT_TX_ASYNC);
+			block_keys = false;
+			return 0;
+		}
+
 		status = part_wipe_boot();
 	} else {
 		part = part_get(key);
@@ -590,6 +690,13 @@ int fb_do_erase(char *cmd_buffer, unsigned int rx_sz)
 		if(partition_is_blocked(key))
 		{
 			strcpy(response, "FAILPartition is blocked from being erased!");
+			fastboot_send_status(response, strlen(response), FASTBOOT_TX_ASYNC);
+			block_keys = false;
+			return 0;
+		}
+
+		if (fastboot_confirm_update()) {
+			sprintf(response, "FAILUser canceled fastboot update");
 			fastboot_send_status(response, strlen(response), FASTBOOT_TX_ASYNC);
 			block_keys = false;
 			return 0;
@@ -691,6 +798,7 @@ int fb_do_flash(char *cmd_buffer, unsigned int rx_sz)
 		if (lock_state == 1) {
 			sprintf(response, "FAILDevice is locked");
 			fastboot_send_status(response, strlen(response), FASTBOOT_TX_ASYNC);
+			block_keys = false;
 			return 1;
 		}
 	}
@@ -700,6 +808,13 @@ int fb_do_flash(char *cmd_buffer, unsigned int rx_sz)
 	if(partition_is_blocked(dest))
 	{
 		strcpy(response, "FAILPartition is blocked from being flashed!");
+		fastboot_send_status(response, strlen(response), FASTBOOT_TX_ASYNC);
+		block_keys = false;
+		return 0;
+	}
+
+	if (fastboot_confirm_update()) {
+		strcpy(response, "FAILUser canceled fastboot update");
 		fastboot_send_status(response, strlen(response), FASTBOOT_TX_ASYNC);
 		block_keys = false;
 		return 0;
