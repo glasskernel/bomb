@@ -45,8 +45,15 @@ static AvbIOResult exynos_read_from_partition(AvbOps *ops,
 	char *p = (char *)buffer;
 	u32 tmp_num_read;
 	uint64_t tmp_offset;
+	uint64_t partition_size;
 	size_t tmp_num_bytes;
 	u32 i;
+
+	if (out_num_read)
+		*out_num_read = 0;
+
+	if (num_bytes == 0)
+		return AVB_IO_RESULT_OK;
 
 	boot_dev = get_boot_device();
 	if (boot_dev == BOOT_UFS)
@@ -56,15 +63,27 @@ static AvbIOResult exynos_read_from_partition(AvbOps *ops,
 		return AVB_IO_RESULT_ERROR_IO;
 	}
 
-	dev = bio_open(name);
-
 	ptn = pit_get_part_info(partition);
 	if (ptn == 0)
 		return AVB_IO_RESULT_ERROR_NO_SUCH_PARTITION;
 
+	partition_size = pit_get_length(ptn);
+	if (offset < 0)
+		offset = partition_size + offset;
+
+	if (offset < 0 || (uint64_t)offset > partition_size ||
+	    num_bytes > partition_size - (uint64_t)offset)
+		return AVB_IO_RESULT_ERROR_RANGE_OUTSIDE_PARTITION;
+
+	dev = bio_open(name);
+	if (!dev)
+		return AVB_IO_RESULT_ERROR_IO;
+
 	tmp_buff = (char *)memalign(0x1000, PIT_SECTOR_SIZE);
-	if (tmp_buff == NULL)
+	if (tmp_buff == NULL) {
+		bio_close(dev);
 		return AVB_IO_RESULT_ERROR_OOM;
+	}
 
 	printf("First block\n");
 	/* First block */
@@ -72,8 +91,9 @@ static AvbIOResult exynos_read_from_partition(AvbOps *ops,
 	tmp_offset = offset;
 	tmp_num_read = ((PIT_SECTOR_SIZE - (tmp_offset % PIT_SECTOR_SIZE)) < tmp_num_bytes)
 					? (PIT_SECTOR_SIZE - (tmp_offset % PIT_SECTOR_SIZE)) : tmp_num_bytes;
-	blkstart = ptn->blkstart + (u32)(offset / PIT_SECTOR_SIZE);
-	dev->new_read(dev, tmp_buff, blkstart, 1);
+	blkstart = (ptn->blkstart << 3) + (u32)(offset / PIT_SECTOR_SIZE);
+	if (dev->new_read(dev, tmp_buff, blkstart, 1) != 1)
+		goto io_err;
 	memcpy((void *)p, (void *)(tmp_buff + (tmp_offset % PIT_SECTOR_SIZE)), tmp_num_read);
 	p += tmp_num_read;
 	tmp_offset += tmp_num_read;
@@ -85,7 +105,8 @@ static AvbIOResult exynos_read_from_partition(AvbOps *ops,
 	if (blknum) {
 		printf("Middle blocks\n");
 		for (i = 0; i < blknum; i++) {
-			dev->new_read(dev, tmp_buff, blkstart + i, 1);
+			if (dev->new_read(dev, tmp_buff, blkstart + i, 1) != 1)
+				goto io_err;
 
 			memcpy((void *)p, (void *)tmp_buff, PIT_SECTOR_SIZE);
 			p += PIT_SECTOR_SIZE;
@@ -99,7 +120,8 @@ static AvbIOResult exynos_read_from_partition(AvbOps *ops,
 	/* Last block */
 	if (tmp_num_bytes) {
 		printf("Last block\n");
-		dev->new_read(dev, tmp_buff, blkstart, 1);
+		if (dev->new_read(dev, tmp_buff, blkstart, 1) != 1)
+			goto io_err;
 		memcpy((void *)p, (void *)tmp_buff, tmp_num_read);
 	}
 
@@ -112,6 +134,11 @@ static AvbIOResult exynos_read_from_partition(AvbOps *ops,
 	bio_close(dev);
 
 	return AVB_IO_RESULT_OK;
+
+io_err:
+	free(tmp_buff);
+	bio_close(dev);
+	return AVB_IO_RESULT_ERROR_IO;
 }
 
 static AvbIOResult exynos_get_preloaded_partition(AvbOps *ops,
@@ -124,6 +151,8 @@ static AvbIOResult exynos_get_preloaded_partition(AvbOps *ops,
 	bdev_t *dev;
 	const char *name;
 	unsigned int boot_dev;
+	u32 blkstart;
+	u32 blknum;
 
 	boot_dev = get_boot_device();
 	if (boot_dev == BOOT_UFS)
@@ -133,13 +162,23 @@ static AvbIOResult exynos_get_preloaded_partition(AvbOps *ops,
 		return AVB_IO_RESULT_ERROR_IO;
 	}
 
-	dev = bio_open(name);
-
 	ptn = pit_get_part_info(partition);
 	if (ptn == 0)
 		return AVB_IO_RESULT_ERROR_NO_SUCH_PARTITION;
 
-	dev->new_read(dev, (void *)AVB_PRELOAD_BASE, ptn->blkstart, ptn->blknum);
+	if (num_bytes > pit_get_length(ptn))
+		return AVB_IO_RESULT_ERROR_RANGE_OUTSIDE_PARTITION;
+
+	dev = bio_open(name);
+	if (!dev)
+		return AVB_IO_RESULT_ERROR_IO;
+
+	blkstart = ptn->blkstart << 3;
+	blknum = (num_bytes + PIT_SECTOR_SIZE - 1) / PIT_SECTOR_SIZE;
+	if (dev->new_read(dev, (void *)AVB_PRELOAD_BASE, blkstart, blknum) != blknum) {
+		bio_close(dev);
+		return AVB_IO_RESULT_ERROR_IO;
+	}
 
 	*out_pointer = (uint8_t *)AVB_PRELOAD_BASE;
 	*out_num_bytes_preloaded = num_bytes;
