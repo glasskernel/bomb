@@ -42,6 +42,11 @@
 #define REBOOT_MODE_RECOVERY	0xFF
 #define REBOOT_MODE_FACTORY	0xFD
 
+#if TARGET_GTA4XL
+#define GTA4XL_FB_BASE		BOOTLOADER_FB_ADDRESS
+#define GTA4XL_FB_SIZE		0x01400000
+#endif
+
 void configure_ddi_id(void);
 void arm_generic_timer_disable(void);
 
@@ -192,6 +197,140 @@ static void set_bootargs(void)
 	bootargs_update();
 }
 
+#if TARGET_GTA4XL
+static int fdt_find_node(const char *alias, const char *path, const char *compat)
+{
+	const char *alias_path;
+	int noff;
+
+	if (alias) {
+		alias_path = fdt_get_alias(fdt_dtb, alias);
+		if (alias_path) {
+			noff = fdt_path_offset(fdt_dtb, alias_path);
+			if (noff >= 0)
+				return noff;
+		}
+	}
+
+	if (path) {
+		noff = fdt_path_offset(fdt_dtb, path);
+		if (noff >= 0)
+			return noff;
+	}
+
+	if (compat)
+		return fdt_node_offset_by_compatible(fdt_dtb, -1, compat);
+
+	return -FDT_ERR_NOTFOUND;
+}
+
+static int fdt_ensure_subnode(int parent, const char *name)
+{
+	int noff;
+
+	noff = fdt_subnode_offset(fdt_dtb, parent, name);
+	if (noff >= 0)
+		return noff;
+
+	return fdt_add_subnode(fdt_dtb, parent, name);
+}
+
+static uint32_t fdt_ensure_phandle(int noff)
+{
+	uint32_t phandle;
+	uint32_t max_phandle;
+
+	phandle = fdt_get_phandle(fdt_dtb, noff);
+	if (phandle)
+		return phandle;
+
+	max_phandle = fdt_get_max_phandle(fdt_dtb);
+	if (max_phandle == (uint32_t)-1)
+		return 0;
+
+	phandle = max_phandle + 1;
+	if (!phandle)
+		return 0;
+
+	fdt_setprop_u32(fdt_dtb, noff, "phandle", phandle);
+	fdt_setprop_u32(fdt_dtb, noff, "linux,phandle", phandle);
+
+	return phandle;
+}
+
+static void configure_gta4xl_framebuffer(void)
+{
+	fdt32_t reg[3];
+	fdt32_t fb_reserved[2];
+	uint32_t phandle;
+	int root;
+	int rmem;
+	int fb;
+	int dsim;
+	int decon;
+
+	root = fdt_path_offset(fdt_dtb, "/");
+	if (root < 0)
+		return;
+
+	rmem = fdt_ensure_subnode(root, "reserved-memory");
+	if (rmem < 0) {
+		printf("gta4xl: failed to create reserved-memory: %s\n",
+		       fdt_strerror(rmem));
+		return;
+	}
+
+	fdt_setprop_u32(fdt_dtb, rmem, "#address-cells", 2);
+	fdt_setprop_u32(fdt_dtb, rmem, "#size-cells", 1);
+	fdt_setprop(fdt_dtb, rmem, "ranges", NULL, 0);
+
+	fb = fdt_subnode_offset(fdt_dtb, rmem, "framebuffer@0xCA000000");
+	if (fb < 0)
+		fb = fdt_ensure_subnode(rmem, "framebuffer@ca000000");
+	if (fb < 0) {
+		printf("gta4xl: failed to create framebuffer reserve: %s\n",
+		       fdt_strerror(fb));
+		return;
+	}
+
+	reg[0] = cpu_to_fdt32(0);
+	reg[1] = cpu_to_fdt32(GTA4XL_FB_BASE);
+	reg[2] = cpu_to_fdt32(GTA4XL_FB_SIZE);
+
+	fdt_setprop_string(fdt_dtb, fb, "compatible", "exynos,fb_rmem");
+	fdt_setprop(fdt_dtb, fb, "reg", reg, sizeof(reg));
+	phandle = fdt_ensure_phandle(fb);
+	if (!phandle) {
+		printf("gta4xl: failed to assign framebuffer phandle\n");
+		return;
+	}
+
+	dsim = fdt_find_node("dsim0", "/dsim@0x148E0000", "samsung,exynos9-dsim");
+	if (dsim < 0) {
+		printf("gta4xl: DSIM node not found for framebuffer handoff: %s\n",
+		       fdt_strerror(dsim));
+		return;
+	}
+
+	fb_reserved[0] = cpu_to_fdt32(GTA4XL_FB_BASE);
+	fb_reserved[1] = cpu_to_fdt32(GTA4XL_FB_SIZE);
+	fdt_setprop(fdt_dtb, dsim, "fb_reserved", fb_reserved,
+		    sizeof(fb_reserved));
+	fdt_setprop_u32(fdt_dtb, dsim, "memory-region", phandle);
+
+	decon = fdt_find_node("decon0", "/decon_f@0x148B0000",
+			      "samsung,exynos9-decon");
+	if (decon >= 0) {
+		fdt_setprop_u32(fdt_dtb, decon, "psr_mode", 0);
+		fdt_setprop_u32(fdt_dtb, decon, "trig_mode", 1);
+		fdt_setprop_u32(fdt_dtb, decon, "dsi_mode", 0);
+	}
+
+	printf("gta4xl: framebuffer handoff %#x+%#x\n",
+	       GTA4XL_FB_BASE, GTA4XL_FB_SIZE);
+}
+#endif
+
 static void set_usb_serialno(void)
 {
 	char str[BUFFER_SIZE];
@@ -307,8 +446,11 @@ static void configure_dtb(void)
 
 	/* DT control code must write after this function call. */
 	merge_dto_to_main_dtb();
-	resize_dt(SZ_4K);
+	resize_dt(SZ_8K);
 	set_usb_serialno();
+#if TARGET_GTA4XL
+	configure_gta4xl_framebuffer();
+#endif
 
 	if (readl(EXYNOS9610_POWER_SYSIP_DAT0) == REBOOT_MODE_RECOVERY) {
 		sprintf(str, "<0x%x>", RAMDISK_BASE);
