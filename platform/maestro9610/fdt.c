@@ -26,7 +26,7 @@ struct fdt_header *fdt_dtb;
 struct dt_table_header *dtbo_table;
 unsigned int dtbo_index = 0xffffffff;
 
-#if TARGET_GTA4XL
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
 static int gta4xl_fdto_compatible(void *fdto)
 {
 	const char *compatible;
@@ -49,8 +49,13 @@ static int gta4xl_fdto_compatible(void *fdto)
 	while (len > 0) {
 		int slen = strlen(name) + 1;
 
+#if defined(TARGET_GTA4XLWIFI)
+		if (strstr(name, "GTA4XLWIFI"))
+			return 1;
+#else
 		if (strstr(name, "GTA4XL") && !strstr(name, "GTA4XLWIFI"))
 			return 1;
+#endif
 
 		name += slen;
 		len -= slen;
@@ -113,7 +118,7 @@ void merge_dto_to_main_dtb(void)
 		u32 id = fdt32_to_cpu(dt_entry->id);
 		u32 rev = fdt32_to_cpu(dt_entry->rev);
 
-#if TARGET_GTA4XL
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
 		if (id == board_id) {
 			void *candidate = (void *)((unsigned long)dtbo_table
 					+ fdt32_to_cpu(dt_entry->dt_offset));
