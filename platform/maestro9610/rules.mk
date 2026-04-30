@@ -31,7 +31,7 @@ MODULE_SRCS += \
 	$(LOCAL_DIR)/debug-snapshot-uboot.c \
 	$(LOCAL_DIR)/fdt.c
 
-ifeq ($(TARGET),gta4xl)
+ifneq ($(filter $(TARGET),gta4xl gta4xlwifi),)
 MODULE_DEPS += \
 	lib/libdeflate
 
