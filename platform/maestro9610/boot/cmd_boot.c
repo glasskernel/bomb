@@ -334,6 +334,29 @@ static void configure_gta4xl_framebuffer(void)
 	printf("gta4xl: framebuffer handoff %#x+%#x\n",
 	       GTA4XL_FB_BASE, GTA4XL_FB_SIZE);
 }
+
+static void configure_gta4xl_bootargs(void)
+{
+	char str[BUFFER_SIZE];
+	const char *np;
+	int noff;
+	int len;
+
+	noff = fdt_path_offset(fdt_dtb, "/chosen");
+	if (noff < 0)
+		return;
+
+	np = fdt_getprop(fdt_dtb, noff, "bootargs", &len);
+	if (!np)
+		np = "";
+
+	snprintf(str, BUFFER_SIZE,
+		 "%s s3cfb.bootloaderfb=0x%x androidboot.hardware=exynos9610"
+		 " androidboot.em.model=SM-P615 androidboot.revision=%u"
+		 " androidboot.dtbo_idx=%u",
+		 np, GTA4XL_FB_BASE, board_rev, dtbo_index);
+	fdt_setprop(fdt_dtb, noff, "bootargs", str, strlen(str) + 1);
+}
 #endif
 
 static void set_usb_serialno(void)
@@ -455,6 +478,7 @@ static void configure_dtb(void)
 	set_usb_serialno();
 #if TARGET_GTA4XL
 	configure_gta4xl_framebuffer();
+	configure_gta4xl_bootargs();
 #endif
 
 	if (readl(EXYNOS9610_POWER_SYSIP_DAT0) == REBOOT_MODE_RECOVERY) {
