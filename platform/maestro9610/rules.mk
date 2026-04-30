@@ -32,6 +32,9 @@ MODULE_SRCS += \
 	$(LOCAL_DIR)/fdt.c
 
 ifeq ($(TARGET),gta4xl)
+MODULE_DEPS += \
+	lib/libdeflate
+
 MODULE_SRCS += \
 	$(LOCAL_DIR)/../exynos9630/mmu/cpu_a.S \
 	$(LOCAL_DIR)/../exynos/boot_info.c \
