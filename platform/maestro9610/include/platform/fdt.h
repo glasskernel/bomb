@@ -22,4 +22,5 @@ extern struct dt_table_header *dtbo_table;
 
 extern unsigned int board_id;
 extern unsigned int board_rev;
+extern unsigned int dtbo_index;
 #endif
