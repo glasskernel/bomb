@@ -11,6 +11,7 @@
 #include <lk/debug.h>
 #include <ctype.h>
 #include <stdlib.h>
+#include <string.h>
 #include <lk/reg.h>
 #include <libfdt.h>
 #include <lib/bio.h>
@@ -18,6 +19,7 @@
 #include <part_gpt.h>
 #include <dev/boot.h>
 #include <dev/rpmb.h>
+#include <dev/usb/gadget.h>
 #include <platform/exynos9610.h>
 #include <platform/smc.h>
 #include <platform/sfr.h>
@@ -52,6 +54,9 @@ void arm_generic_timer_disable(void);
 
 static char cmdline[AVB_CMD_MAX_SIZE];
 static char verifiedbootstate[AVB_VBS_MAX_SIZE]="androidboot.verifiedbootstate=";
+static const char *boot_slot_suffix = "";
+static int boot_slot_index = -1;
+static int boot_uses_ab_slots;
 
 struct bootargs_prop {
 	char prop[64];
@@ -481,13 +486,13 @@ static void configure_dtb(void)
 	}
 
 	/* Add booting slot */
-	noff = fdt_path_offset(fdt_dtb, "/chosen");
-	np = fdt_getprop(fdt_dtb, noff, "bootargs", &len);
-	if (ab_current_slot())
-		snprintf(str, BUFFER_SIZE, "%s %s", np, "androidboot.slot_suffix=_b");
-	else
-		snprintf(str, BUFFER_SIZE, "%s %s", np, "androidboot.slot_suffix=_a");
-	fdt_setprop(fdt_dtb, noff, "bootargs", str, strlen(str) + 1);
+	if (boot_uses_ab_slots) {
+		noff = fdt_path_offset(fdt_dtb, "/chosen");
+		np = fdt_getprop(fdt_dtb, noff, "bootargs", &len);
+		snprintf(str, BUFFER_SIZE, "%s androidboot.slot_suffix=%s",
+			 np, boot_slot_suffix);
+		fdt_setprop(fdt_dtb, noff, "bootargs", str, strlen(str) + 1);
+	}
 
 	/* Secure memories are carved-out in case of EVT1 */
 	/*
@@ -574,18 +579,40 @@ int cmd_scatter_load_boot(int argc, const cmd_args *argv);
 int load_boot_images(void)
 {
 	struct pit_entry *ptn;
+	boot_img_hdr *boot_hdr;
+	const char *boot_part_name;
+	const char *dtbo_part_name = NULL;
+	int ret;
 	cmd_args argv[6];
 
-	if (ab_current_slot())
-		ptn = pit_get_part_info("boot_b");
-	else
-		ptn = pit_get_part_info("boot_a");
-
-	if (ptn == 0) {
-		printf("Partition 'kernel' does not exist\n");
-		return -1;
+	boot_uses_ab_slots = ab_slots_available();
+	if (boot_uses_ab_slots) {
+		boot_slot_index = ab_current_slot();
+		boot_slot_suffix = boot_slot_index ? "_b" : "_a";
+		boot_part_name = boot_slot_index ? "boot_b" : "boot_a";
 	} else {
-		pit_access(ptn, PIT_OP_LOAD, (u64)BOOT_BASE, 0);
+		boot_slot_index = -1;
+		boot_slot_suffix = "";
+		boot_part_name = "boot";
+	}
+
+	ptn = pit_get_part_info(boot_part_name);
+	if (ptn == 0) {
+		printf("Partition '%s' does not exist\n", boot_part_name);
+		return -1;
+	}
+
+	printf("Loading boot image from '%s'\n", boot_part_name);
+	ret = pit_access(ptn, PIT_OP_LOAD, (u64)BOOT_BASE, 0);
+	if (ret) {
+		printf("Failed to load '%s': %d\n", boot_part_name, ret);
+		return ret;
+	}
+
+	boot_hdr = (boot_img_hdr *)BOOT_BASE;
+	if (strncmp((char *)boot_hdr->magic, BOOT_MAGIC, BOOT_MAGIC_SIZE)) {
+		printf("Boot image magic not found in '%s'\n", boot_part_name);
+		return -1;
 	}
 
 	argv[1].u = BOOT_BASE;
@@ -593,7 +620,28 @@ int load_boot_images(void)
 	argv[3].u = RAMDISK_BASE;
 	argv[4].u = DT_BASE;
 	argv[5].u = DTBO_BASE;
-	cmd_scatter_load_boot(5, argv);
+	ret = cmd_scatter_load_boot(5, argv);
+	if (ret)
+		return ret;
+
+	if (boot_uses_ab_slots) {
+		dtbo_part_name = boot_slot_index ? "dtbo_b" : "dtbo_a";
+		if (!pit_get_part_info(dtbo_part_name))
+			dtbo_part_name = NULL;
+	}
+
+	if (!dtbo_part_name && pit_get_part_info("dtbo"))
+		dtbo_part_name = "dtbo";
+
+	if (dtbo_part_name) {
+		ptn = pit_get_part_info(dtbo_part_name);
+		printf("Loading DTBO from '%s'\n", dtbo_part_name);
+		ret = pit_access(ptn, PIT_OP_LOAD, (u64)DTBO_BASE, 0);
+		if (ret) {
+			printf("Failed to load '%s': %d\n", dtbo_part_name, ret);
+			return ret;
+		}
+	}
 
 	return 0;
 }
@@ -603,13 +651,14 @@ int cmd_boot(int argc, const cmd_args *argv)
 	fdt_dtb = (struct fdt_header *)DT_BASE;
 	dtbo_table = (struct dt_table_header *)DTBO_BASE;
 
-	load_boot_images();
+	if (load_boot_images()) {
+		printf("Boot image load failed; entering fastboot\n");
+		start_usb_gadget();
+		while (1) {}
+	}
 
 #if defined(CONFIG_USE_AVB20)
-	if (ab_current_slot())
-		avb_main("_b", cmdline, verifiedbootstate);
-	else
-		avb_main("_a", cmdline, verifiedbootstate);
+	avb_main(boot_slot_suffix, cmdline, verifiedbootstate);
 #endif
 
 	configure_dtb();
