@@ -58,6 +58,17 @@ struct cmd_fastboot {
 	int (*handler)(const char *);
 };
 
+static int partition_has_slots(const char *name)
+{
+	char part_a[64];
+	char part_b[64];
+
+	snprintf(part_a, sizeof(part_a), "%s_a", name);
+	snprintf(part_b, sizeof(part_b), "%s_b", name);
+
+	return pit_get_part_info(part_a) && pit_get_part_info(part_b);
+}
+
 int fb_do_getvar(const char *cmd_buffer)
 {
 	char buf[FB_RESPONSE_BUFFER_SIZE];
@@ -115,14 +126,16 @@ int fb_do_getvar(const char *cmd_buffer)
 	}
 	else if (!strcmp(cmd_buffer + 7, "slot-count"))
 	{
-		sprintf(response + 4, "2");
+		sprintf(response + 4, "%d", ab_slots_available() ? 2 : 0);
 	}
 	else if (!strcmp(cmd_buffer + 7, "current-slot"))
 	{
-		if (ab_current_slot())
-			sprintf(response + 4, "_b");
-		else
-			sprintf(response + 4, "_a");
+		if (ab_slots_available()) {
+			if (ab_current_slot())
+				sprintf(response + 4, "_b");
+			else
+				sprintf(response + 4, "_a");
+		}
 	}
 	else if (!memcmp(cmd_buffer + 7, "slot-successful", strlen("slot-successful")))
 	{
@@ -134,7 +147,9 @@ int fb_do_getvar(const char *cmd_buffer)
 		else
 			sprintf(response, "FAILinvalid slot");
 		printf("slot: %d\n", slot);
-		if (slot >= 0) {
+		if (!ab_slots_available()) {
+			sprintf(response, "FAILslots unavailable");
+		} else if (slot >= 0) {
 			if (ab_slot_successful(slot))
 				sprintf(response + 4, "yes");
 			else
@@ -150,7 +165,9 @@ int fb_do_getvar(const char *cmd_buffer)
 			slot = 1;
 		else
 			sprintf(response, "FAILinvalid slot");
-		if (slot >= 0) {
+		if (!ab_slots_available()) {
+			sprintf(response, "FAILslots unavailable");
+		} else if (slot >= 0) {
 			if (ab_slot_unbootable(slot))
 				sprintf(response + 4, "yes");
 			else
@@ -166,16 +183,14 @@ int fb_do_getvar(const char *cmd_buffer)
 			slot = 1;
 		else
 			sprintf(response, "FAILinvalid slot");
-		if (slot >= 0)
+		if (!ab_slots_available())
+			sprintf(response, "FAILslots unavailable");
+		else if (slot >= 0)
 			sprintf(response + 4, "%d", ab_slot_retry_count(slot));
 		}
 	else if (!memcmp(cmd_buffer + 7, "has-slot", strlen("has-slot")))
 	{
-		if (!strcmp(cmd_buffer + 7 + strlen("has-slot:"), "boot") ||
-			!strcmp(cmd_buffer + 7 + strlen("has-slot:"), "dtb") ||
-			!strcmp(cmd_buffer + 7 + strlen("has-slot:"), "dtbo") ||
-			!strcmp(cmd_buffer + 7 + strlen("has-slot:"), "system") ||
-			!strcmp(cmd_buffer + 7 + strlen("has-slot:"), "vendor"))
+		if (partition_has_slots(cmd_buffer + 7 + strlen("has-slot:")))
 			sprintf(response + 4, "yes");
 		else
 			sprintf(response + 4, "no");
