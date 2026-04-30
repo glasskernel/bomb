@@ -26,6 +26,7 @@
 #include <platform/dfd.h>
 #include <platform/ldfw.h>
 #include <platform/device_info.h>
+#include <platform/gpio.h>
 
 #include <lib/font_display.h>
 #include <lib/logo_display.h>
@@ -57,6 +58,26 @@ unsigned int get_charger_mode(void)
 {
 	return charger_mode;
 }
+
+#if TARGET_GTA4XL
+static void read_gta4xl_board_rev(void)
+{
+	struct exynos_gpio_bank *bank =
+		(struct exynos_gpio_bank *)EXYNOS9610_GPG3CON;
+	unsigned int rev = 0;
+	int i;
+
+	for (i = 0; i < 4; i++) {
+		exynos_gpio_set_pull(bank, 2 + i, GPIO_PULL_NONE);
+		exynos_gpio_cfg_pin(bank, 2 + i, GPIO_INPUT);
+		rev |= (exynos_gpio_get_value(bank, 2 + i) & 0x1) << i;
+	}
+
+	board_id = CONFIG_BOARD_ID;
+	board_rev = rev;
+	printf("gta4xl board id/rev: 0x%x/0x%x\n", board_id, board_rev);
+}
+#endif
 
 static void read_chip_id(void)
 {
@@ -238,6 +259,9 @@ void platform_early_init(void)
 	unsigned int rst_stat = readl(EXYNOS9610_POWER_RST_STAT);
 
 	read_chip_id();
+#if TARGET_GTA4XL
+	read_gta4xl_board_rev();
+#endif
 
 	speedy_gpio_init();
 	xbootldo_gpio_init();
