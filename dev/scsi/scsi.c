@@ -68,6 +68,12 @@ scm g_scm;
 /* Command meta, only one when not using multi-tasking */
 u8 g_buf[4096];
 
+static void scsi_init_cmd(scsi_device_t *sdev)
+{
+	memset(&g_scm, 0, sizeof(g_scm));
+	g_scm.sdev = sdev;
+}
+
 /* Function declaration */
 static status_t scsi_format_unit(struct bdev *dev);
 static status_t scsi_start_stop_unit(struct bdev *dev);
@@ -164,7 +170,7 @@ static status_t scsi_read_10(struct bdev *dev, void *buf, bnum_t block, uint cou
 	scsi_device_t *sdev = (scsi_device_t *)dev->private;
 	status_t ret = NO_ERROR;
 
-	g_scm.sdev = sdev;
+	scsi_init_cmd(sdev);
 	g_scm.buf = (u8 *)buf;
 	g_scm.datalen = (u32)count * dev->block_size;
 
@@ -192,7 +198,7 @@ static status_t scsi_write_10(struct bdev *dev, const void *buf,
 	scsi_device_t *sdev = (scsi_device_t *)dev->private;
 	status_t ret = NO_ERROR;
 
-	g_scm.sdev = sdev;
+	scsi_init_cmd(sdev);
 	g_scm.buf = (u8 *)buf;
 	g_scm.datalen = (u32)count * dev->block_size;
 
@@ -220,7 +226,7 @@ static status_t scsi_write_buffer(struct bdev *dev, const void *buf,
 	scsi_device_t *sdev = (scsi_device_t *)dev->private;
 	status_t ret = NO_ERROR;
 
-	g_scm.sdev = sdev;
+	scsi_init_cmd(sdev);
 	g_scm.buf = (u8 *)buf;
 	g_scm.datalen = (u32)len;
 
@@ -285,7 +291,7 @@ static status_t scsi_unmap(struct bdev *dev,
 	scsi_device_t *sdev = (scsi_device_t *)dev->private;
 	status_t ret = NO_ERROR;
 
-	g_scm.sdev = sdev;
+	scsi_init_cmd(sdev);
 	g_scm.buf = (u8 *)g_buf;
 	g_scm.datalen = SCSI_UNMAP_DATA_LEN + 2;
 
@@ -330,7 +336,7 @@ static int scsi_start_stop_unit(struct bdev *dev)
 	scsi_device_t *sdev = (scsi_device_t *)dev->private;
 	status_t ret = NO_ERROR;
 
-	g_scm.sdev = sdev;
+	scsi_init_cmd(sdev);
 
 	/*
 	 * Prepare CDB
@@ -340,8 +346,6 @@ static int scsi_start_stop_unit(struct bdev *dev)
 	memset((void *)g_scm.cdb, 0, sizeof(g_scm.cdb));
 	g_scm.cdb[0] = SCSI_OP_START_STOP_UNIT;
 	g_scm.cdb[4] = 3 << 4;
-	/* To clear Expected Data Transfer Length in UFS COMMAND UPIU */
-	g_scm.datalen = 0;
 
 	/* Actual issue */
 	ret = sdev->exec(&g_scm);
@@ -356,7 +360,7 @@ static status_t scsi_inquiry(struct bdev *dev, void *buf)
 	scsi_device_t *sdev = (scsi_device_t *)dev->private;
 	status_t ret = NO_ERROR;
 
-	g_scm.sdev = sdev;
+	scsi_init_cmd(sdev);
 	g_scm.buf = (u8 *)buf;
 
 	/*
@@ -383,7 +387,9 @@ static int scsi_mode_sense(struct bdev *dev)
 	scsi_device_t *sdev = (scsi_device_t *)dev->private;
 	status_t ret = NO_ERROR;
 
-	g_scm.sdev = sdev;
+	scsi_init_cmd(sdev);
+	g_scm.buf = (u8 *)g_buf;
+	g_scm.datalen = 18;
 
 	/*
 	 * Prepare CDB
@@ -406,7 +412,7 @@ static int scsi_read_capacity_10(struct bdev *dev, void *buf)
 	scsi_device_t *sdev = (scsi_device_t *)dev->private;
 	status_t ret = NO_ERROR;
 
-	g_scm.sdev = sdev;
+	scsi_init_cmd(sdev);
 	g_scm.buf = (u8 *)buf;
 
 	/*
@@ -430,7 +436,7 @@ static status_t scsi_format_unit(struct bdev *dev)
 	scsi_device_t *sdev = (scsi_device_t *)dev->private;
 	status_t ret = NO_ERROR;
 
-	g_scm.sdev = sdev;
+	scsi_init_cmd(sdev);
 
 	/*
 	 * Prepare CDB
@@ -452,7 +458,7 @@ static status_t scsi_secu_prot_in(struct bdev *dev, void *buf, bnum_t block, uin
 	scsi_device_t *sdev = (scsi_device_t *)dev->private;
 	status_t ret = NO_ERROR;
 
-	g_scm.sdev = sdev;
+	scsi_init_cmd(sdev);
 	g_scm.buf = (u8 *)buf;
 	g_scm.datalen = (u32)count * dev->block_size;
 
@@ -480,7 +486,7 @@ static status_t scsi_secu_prot_out(struct bdev *dev, const void *buf, bnum_t blo
 	scsi_device_t *sdev = (scsi_device_t *)dev->private;
 	status_t ret = NO_ERROR;
 
-	g_scm.sdev = sdev;
+	scsi_init_cmd(sdev);
 	g_scm.buf = (u8 *)buf;
 	g_scm.datalen = (u32)count * dev->block_size;
 
