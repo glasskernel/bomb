@@ -119,6 +119,10 @@ int ufs_board_init(int host_index, struct ufs_host *ufs)
 	reg &= ~0x3;
 	writel(reg, UFS_GPIO_PUD);
 
+	reg = readl(UFS_GPIO_DAT);
+	reg |= 0x1;
+	writel(reg, UFS_GPIO_DAT);
+
 	reg = readl(UFS_GPIO_CON);
 	reg &= ~0xF;
 	reg |= 0x1;
