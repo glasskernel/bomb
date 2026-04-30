@@ -620,7 +620,7 @@ int load_boot_images(void)
 	argv[3].u = RAMDISK_BASE;
 	argv[4].u = DT_BASE;
 	argv[5].u = DTBO_BASE;
-	ret = cmd_scatter_load_boot(5, argv);
+	ret = cmd_scatter_load_boot(6, argv);
 	if (ret)
 		return ret;
 
