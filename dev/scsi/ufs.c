@@ -12,11 +12,13 @@
 
 
 #include <lk/reg.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <dev/ufs.h>
 #include <dev/ufs_provision.h>
 #include <platform/delay.h>
 #include <platform/mmu/barrier.h>
+#include <platform/mmu/mmu_func.h>
 #include <platform/sfr.h>
 #include <platform/smc.h>
 #include <lk/err.h>
@@ -318,7 +320,94 @@ struct ufs_host *get_cur_ufs_host(void)
 	return _ufs[_ufs_curr_host];
 }
 
-static void __utp_map_sg(struct ufs_host *ufs)
+static void ufs_clean_range(const void *addr, size_t len)
+{
+	u64 start;
+
+	if (!addr || !len)
+		return;
+
+	start = (u64)(uintptr_t)addr;
+	clean_dcache_range(start, start + len);
+}
+
+static void ufs_invalidate_range(const void *addr, size_t len)
+{
+	u64 start;
+
+	if (!addr || !len)
+		return;
+
+	start = (u64)(uintptr_t)addr;
+	invalidate_dcache_range(start, start + len);
+}
+
+static void ufs_clean_invalidate_range(const void *addr, size_t len)
+{
+	u64 start;
+
+	if (!addr || !len)
+		return;
+
+	start = (u64)(uintptr_t)addr;
+	clean_invalidate_dcache_range(start, start + len);
+}
+
+static bool ufs_scsi_cmd_is_data_out(const scm *pscm)
+{
+	if (!pscm || !pscm->datalen)
+		return false;
+
+	switch (pscm->cdb[0]) {
+	case SCSI_OP_UNMAP:
+	case SCSI_MODE_SEL10:
+	case SCSI_OP_FORMAT_UNIT:
+	case SCSI_OP_WRITE_10:
+	case SCSI_OP_WRITE_BUFFER:
+	case SCSI_OP_SECU_PROT_OUT:
+	case SCSI_OP_START_STOP_UNIT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool ufs_scsi_cmd_is_data_in(const scm *pscm)
+{
+	return pscm && pscm->datalen && !ufs_scsi_cmd_is_data_out(pscm);
+}
+
+static void ufs_sync_request_before_dma(struct ufs_host *ufs, u32 type)
+{
+	if (!ufs)
+		return;
+
+	ufs_clean_range(ufs->cmd_desc_addr, sizeof(struct ufs_cmd_desc));
+	ufs_clean_range(ufs->utrd_addr, sizeof(struct ufs_utrd));
+
+	if (type != UPIU_TRANSACTION_COMMAND || !ufs->scsi_cmd)
+		return;
+
+	if (ufs_scsi_cmd_is_data_out(ufs->scsi_cmd))
+		ufs_clean_range(ufs->scsi_cmd->buf, ufs->scsi_cmd->datalen);
+	else if (ufs_scsi_cmd_is_data_in(ufs->scsi_cmd))
+		ufs_clean_invalidate_range(ufs->scsi_cmd->buf, ufs->scsi_cmd->datalen);
+}
+
+static void ufs_sync_response_after_dma(struct ufs_host *ufs, u32 type)
+{
+	if (!ufs)
+		return;
+
+	ufs_invalidate_range(ufs->utrd_addr, sizeof(struct ufs_utrd));
+	ufs_invalidate_range(ufs->cmd_desc_addr, sizeof(struct ufs_cmd_desc));
+
+	if (type == UPIU_TRANSACTION_COMMAND &&
+			ufs_scsi_cmd_is_data_in(ufs->scsi_cmd))
+		ufs_invalidate_range(ufs->scsi_cmd->buf, ufs->scsi_cmd->datalen);
+}
+
+static int __utp_map_sg(struct ufs_host *ufs)
 {
 	u32 i, len, sg_segments;
 
@@ -326,15 +415,26 @@ static void __utp_map_sg(struct ufs_host *ufs)
 
 	if (len) {
 		sg_segments = (len + UFS_SG_BLOCK_SIZE - 1) / UFS_SG_BLOCK_SIZE;
+		if (sg_segments > SCSI_MAX_SG_SEGMENTS) {
+			printf("UFS: SG list too large: %u entries, max %u\n",
+			       sg_segments, SCSI_MAX_SG_SEGMENTS);
+			return ERR_TOO_BIG;
+		}
+
 		for (i = 0; i < sg_segments; i++) {
+			u32 sg_len = MIN(len - (i * UFS_SG_BLOCK_SIZE),
+					 UFS_SG_BLOCK_SIZE);
+
 			ufs->cmd_desc_addr->prd_table[i].size =
-			    (u32) UFS_SG_BLOCK_SIZE - 1;
+			    (u32)sg_len - 1;
 			ufs->cmd_desc_addr->prd_table[i].base_addr =
 			    (u32)(((u64) (ufs->scsi_cmd->buf) + i * UFS_SG_BLOCK_SIZE) & (((u64)1 << UFS_BIT_LEN_OF_DWORD) - 1));
 			ufs->cmd_desc_addr->prd_table[i].upper_addr =
 			    (u32)(((u64) (ufs->scsi_cmd->buf) + i * UFS_SG_BLOCK_SIZE) >> UFS_BIT_LEN_OF_DWORD);
 		}
 	}
+
+	return NO_ERROR;
 }
 
 static u32 __utp_cmd_get_dir(scm *pscm)
@@ -344,6 +444,7 @@ static u32 __utp_cmd_get_dir(scm *pscm)
 	if (pscm->datalen) {
 		switch (pscm->cdb[0]) {
 		case SCSI_OP_UNMAP:
+		case SCSI_MODE_SEL10:
 		case SCSI_OP_FORMAT_UNIT:
 		case SCSI_OP_WRITE_10:
 		case SCSI_OP_WRITE_BUFFER:
@@ -421,6 +522,7 @@ static int __utp_write_query_ucd(struct ufs_host *ufs, query_index qry)
 	struct ufs_upiu_header *hdr = &cmd_ptr->header;
 	u8 *tsf = cmd_ptr->tsf;
 	u16 data_len;
+	u16 info_len;
 	u32 info;
 
 	/* setup data segment length */
@@ -436,8 +538,7 @@ static int __utp_write_query_ucd(struct ufs_host *ufs, query_index qry)
 	hdr->flags = UPIU_CMD_FLAGS_NONE;
 	hdr->tag = 0;					/* Only tag #0 is used */
 	hdr->function = ufs_query_params[qry][0];	/* Query Function */
-	if (hdr->function == UFS_STD_WRITE_REQ)
-		hdr->datalength = cpu_to_be16(data_len);
+	hdr->datalength = 0;
 
 	/* Transaction Specific Fields */
 	tsf[0] = ufs_query_params[qry][1];		/* OPCODE */
@@ -445,12 +546,13 @@ static int __utp_write_query_ucd(struct ufs_host *ufs, query_index qry)
 	tsf[2] = ufs_query_params[qry][3];		/* INDEX */
 	tsf[3] = ufs_query_params[qry][4];		/* SELECTOR */
 
-	if (hdr->function == UFS_STD_WRITE_REQ) {
-		info = cpu_to_be16(data_len);
-		memcpy(&tsf[6], &info, sizeof(u16));
-	} else if (hdr->function == UFS_STD_READ_REQ) {
-		info = cpu_to_be16(UPIU_DATA_SIZE);
-		memcpy(&tsf[6], &info, sizeof(u16));
+	if (tsf[0] == UPIU_QUERY_OPCODE_WRITE_DESC) {
+		info_len = cpu_to_be16(data_len);
+		hdr->datalength = info_len;
+		memcpy(&tsf[6], &info_len, sizeof(info_len));
+	} else if (tsf[0] == UPIU_QUERY_OPCODE_READ_DESC) {
+		info_len = cpu_to_be16(UPIU_DATA_SIZE);
+		memcpy(&tsf[6], &info_len, sizeof(info_len));
 	}
 
 	if (tsf[0] == UPIU_QUERY_OPCODE_WRITE_ATTR) {
@@ -513,7 +615,7 @@ static int __utp_write_utrd(struct ufs_host *ufs, u32 type)
 
 		len = ufs->scsi_cmd->datalen;
 		sg_segments = (u16)((len + UFS_SG_BLOCK_SIZE - 1) / UFS_SG_BLOCK_SIZE);
-		data_direction = __utp_cmd_get_flags(ufs->scsi_cmd);
+		data_direction = __utp_cmd_get_dir(ufs->scsi_cmd);
 
 		utrd_ptr->dw[0] = (u32)(data_direction | UTP_SCSI_COMMAND | UTP_REQ_DESC_INT_CMD);
 		utrd_ptr->dw[2] = (u32)(OCS_INVALID_COMMAND_STATUS);
@@ -544,11 +646,15 @@ static int __utp_write_utrd(struct ufs_host *ufs, u32 type)
 
 static int __utp_write_cmd_all_descs(struct ufs_host *ufs)
 {
+	int ret;
+
 	/* ucd */
 	__utp_write_cmd_ucd(ufs);
 
 	/* prdt */
-	__utp_map_sg(ufs);
+	ret = __utp_map_sg(ufs);
+	if (ret)
+		return ret;
 
 	/* utrd*/
 	return __utp_write_utrd(ufs, UPIU_TRANSACTION_COMMAND);
@@ -556,8 +662,12 @@ static int __utp_write_cmd_all_descs(struct ufs_host *ufs)
 
 static int __utp_write_query_all_descs(struct ufs_host *ufs, query_index qry)
 {
+	int ret;
+
 	/* ucd */
-	__utp_write_query_ucd(ufs, qry);
+	ret = __utp_write_query_ucd(ufs, qry);
+	if (ret)
+		return ret;
 
 	/* utrd*/
 	return __utp_write_utrd(ufs, UPIU_TRANSACTION_QUERY_REQ);
@@ -698,6 +808,8 @@ static int send_uic_cmd(struct ufs_host *ufs)
 
 static void __utp_send(struct ufs_host *ufs, u32 type)
 {
+	ufs_sync_request_before_dma(ufs, type);
+	wmb();
 
 	switch (type) {
 	case UPIU_TRANSACTION_NOP_OUT:
@@ -741,6 +853,8 @@ static int __utp_wait_for_response(struct ufs_host *ufs, u32 type)
 	/* Nexus configuration */
 	if (type == UPIU_TRANSACTION_NOP_OUT || type == UPIU_TRANSACTION_QUERY_REQ)
 		writel((readl(ufs->ioaddr + 0x140) | 0x01), (ufs->ioaddr + 0x140));
+
+	ufs_sync_response_after_dma(ufs, type);
 
 	return err;
 }
