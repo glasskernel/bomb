@@ -24,6 +24,7 @@
 
 struct fdt_header *fdt_dtb;
 struct dt_table_header *dtbo_table;
+unsigned int dtbo_index = 0xffffffff;
 
 #if TARGET_GTA4XL
 static int gta4xl_fdto_compatible(void *fdto)
@@ -104,6 +105,7 @@ void merge_dto_to_main_dtb(void)
 		printf("DTBO: dtbo.img: %s\n", fdt_strerror(-FDT_ERR_BADMAGIC));
 		return;
 	}
+	dtbo_index = 0xffffffff;
 	dt_entry = (struct dt_table_entry *)((unsigned long)dtbo_table
 			+ fdt32_to_cpu(dtbo_table->header_size));
 
@@ -139,8 +141,10 @@ void merge_dto_to_main_dtb(void)
 	if (i == fdt32_to_cpu(dtbo_table->dt_entry_count)) {
 		printf("DTBO: Not found dtbo of board_rev 0x%x.\n", board_rev);
 		do_fastboot(0, 0);
-		return;
+		while (1) {}
 	}
+
+	dtbo_index = i;
 
 	fdto = malloc(fdt32_to_cpu(dt_entry->dt_size));
 	memcpy((void *)fdto, (void *)((unsigned long)dtbo_table + fdt32_to_cpu(dt_entry->dt_offset)),
