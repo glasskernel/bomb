@@ -15,13 +15,13 @@
 #include <lib/console.h>
 #include <libfdt.h>
 
-#if TARGET_GTA4XL
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
 #include <dev/usb/gadget.h>
 #include <libdeflate.h>
 #include <lk3rd/boot_reason.h>
 #endif
 
-#if TARGET_GTA4XL
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
 #define BAIL_TO_FASTBOOT(reason) do { \
 	enter_reason = (char *)(reason); \
 	start_usb_gadget(); \
@@ -102,7 +102,7 @@ int cmd_scatter_load_boot(int argc, const cmd_args *argv)
 		dtb_offset = dtb_offset + 0x40;
 
 	if (kernel_addr) {
-#if TARGET_GTA4XL
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
 		if (ramdisk_addr &&
 		    consider_gzip_decompression((const void *)(boot_addr + kernel_offset),
 						(void *)kernel_addr,
@@ -112,7 +112,7 @@ int cmd_scatter_load_boot(int argc, const cmd_args *argv)
 #endif
 		memcpy((void *)kernel_addr, (const void *)(boot_addr + kernel_offset), (size_t)b_hdr->kernel_size);
 	}
-#if TARGET_GTA4XL
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
 kernel_done:
 #endif
 	if (ramdisk_addr)
