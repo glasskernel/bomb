@@ -151,6 +151,9 @@ FUNCTION(arm64_elX_to_el1)
     msr elr_el2, x4
     mov x4, #((0b1111 << 6) | (0b0101)) /* EL1h runlevel */
     msr spsr_el2, x4
+#if ARM64_PRESERVE_EL2_CONFIG
+    b   .dropEL
+#endif
 
 .confEL1:
     /* disable EL2 coprocessor traps */
@@ -165,6 +168,7 @@ FUNCTION(arm64_elX_to_el1)
     mov x4, #(0b11<<20)
     msr cpacr_el1, x4
 
+.dropEL:
     /* set up the EL1 bounce interrupt */
     mov x4, sp
     msr sp_el1, x4
