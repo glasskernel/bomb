@@ -13,6 +13,8 @@ ifneq (,$(EXTRA_BUILDRULES))
 endif
 
 MKBOOTIMG ?= $(shell command -v mkbootimg 2>/dev/null || echo ./tools/mkbootimg.py)
+BOOT_IMAGE_TEXT_OFFSET ?= $(MEMBASE)
+BOOT_IMAGE_FLAGS ?= 0
 
 $(EXTRA_LINKER_SCRIPTS):
 
@@ -31,7 +33,7 @@ $(ANDROID_BOOT_IMAGE): $(OUTBIN_LK3RD)
 $(OUTBIN_LK3RD) : $(OUTBIN)
 	@echo lk3rd: building final image base: $(MEMBASE): $@
 	rm lib/lk3rd/boot/bootshim.bin lib/lk3rd/boot/bootshim.elf -fv
-	cd lib/lk3rd/boot/ && CREATE_FDT_POINTER=$(CREATE_FDT_POINTER) FDT_POINTER_ADDRESS=$(FDT_POINTER_ADDRESS) LK3RD_BASE=$(MEMBASE) LK3RD_SIZE=0x200000 make
+	cd lib/lk3rd/boot/ && CREATE_FDT_POINTER=$(CREATE_FDT_POINTER) FDT_POINTER_ADDRESS=$(FDT_POINTER_ADDRESS) LK3RD_BASE=$(MEMBASE) LK3RD_SIZE=0x200000 BOOT_IMAGE_TEXT_OFFSET=$(BOOT_IMAGE_TEXT_OFFSET) BOOT_IMAGE_FLAGS=$(BOOT_IMAGE_FLAGS) make
 	cat lib/lk3rd/boot/bootshim.bin $(OUTBIN) > $@
 	@echo lk3rd: all done! image can be found at $@
 
