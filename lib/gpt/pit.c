@@ -302,6 +302,52 @@ static int pit_flash_sparse(struct pit_entry *ptn, u64 addr)
 	return res;
 }
 
+static int pit_get_partial_range(struct pit_entry *ptn, u64 offset,
+		u64 size, u64 *start, u64 *num)
+{
+	u64 part_size;
+	u64 io_size;
+
+	if (!ptn)
+		return ERR_NOT_VALID;
+
+	if (!pit_available)
+		return ERR_NOT_CONFIGURED;
+
+	if (offset % PIT_SECTOR_SIZE) {
+		printf("[PIT(%s)] offset %llu is not %u-byte aligned\n",
+		       ptn->name, offset, PIT_SECTOR_SIZE);
+		return ERR_NOT_VALID;
+	}
+
+	part_size = pit_get_length(ptn);
+	if (offset > part_size) {
+		printf("[PIT(%s)] offset %llu is past partition size %llu\n",
+		       ptn->name, offset, part_size);
+		return ERR_NOT_VALID;
+	}
+
+	if (size) {
+		if (size > part_size - offset) {
+			printf("[PIT(%s)] size %llu is bigger than remaining %llu\n",
+			       ptn->name, size, part_size - offset);
+			return ERR_NOT_VALID;
+		}
+		io_size = size;
+	} else {
+		io_size = part_size - offset;
+	}
+
+	io_size = ROUNDUP(io_size, (u64)PIT_SECTOR_SIZE);
+	if (!io_size)
+		return ERR_NOT_VALID;
+
+	*start = ((u64)ptn->blkstart << 3) + offset / PIT_SECTOR_SIZE;
+	*num = io_size / PIT_SECTOR_SIZE;
+
+	return NO_ERROR;
+}
+
 /*
  * pit_access - do an operation on a block device
  * @ptn: PIT entry
@@ -396,8 +442,8 @@ u64 pit_get_length(struct pit_entry *ptn)
  * pit_entry_write - write to a PIT entry partially
  * @ptn: PIT entry
  * @buf: buffer to write from
- * @offset: offset to write to
- * @size: unused, kept for parity
+ * @offset: byte offset to write to
+ * @size: bytes to write, or 0 for the remainder of the partition
  *
  * Returns NO_ERROR if successful.
  * Otherwise, ERR_IO.
@@ -406,9 +452,11 @@ int pit_entry_write(struct pit_entry *ptn, void *buf, u64 offset, u64 size)
 {
 	bdev_t *dev;
 	u64 num, start, ret;
-	char *block_device = malloc(7 * sizeof(char));
+	int res;
+	char *block_device;
 
-	snprintf(block_device, 7, "scsi%u", ptn->lun);
+	if (!ptn)
+		return ERR_NOT_VALID;
 
 	if(!pit_available)
 		return ERR_NOT_CONFIGURED;
@@ -420,6 +468,14 @@ int pit_entry_write(struct pit_entry *ptn, void *buf, u64 offset, u64 size)
 		return pit_flash_sparse(ptn, (u64)buf);
 	}
 
+	res = pit_get_partial_range(ptn, offset, size, &start, &num);
+	if (res)
+		return res;
+
+	block_device = malloc(7 * sizeof(char));
+	if (!block_device)
+		return ERR_NO_MEMORY;
+	snprintf(block_device, 7, "scsi%u", ptn->lun);
 	dev = bio_open(block_device);
 
 	free(block_device);
@@ -427,16 +483,12 @@ int pit_entry_write(struct pit_entry *ptn, void *buf, u64 offset, u64 size)
 	if (!dev)
 		return ERR_IO;
 
-	/* Calculate partition geometry for UFS. */
-	start = (ptn->blkstart + offset) << 3;
-	num = ptn->blknum << 3;
-
 	ret = dev->new_write(dev, buf, start, num);
+
+	bio_close(dev);
 
 	if(ret != num)
 		return ERR_IO;
-
-	bio_close(dev);
 
 	return NO_ERROR;
 }
@@ -445,8 +497,8 @@ int pit_entry_write(struct pit_entry *ptn, void *buf, u64 offset, u64 size)
  * pit_entry_read - read from a PIT entry partially
  * @ptn: PIT entry
  * @buf: buffer to read to
- * @offset: offset to read from
- * @size: unused, kept for parity
+ * @offset: byte offset to read from
+ * @size: bytes to read, or 0 for the remainder of the partition
  *
  * Returns NO_ERROR if successful.
  * Otherwise, ERR_IO.
@@ -455,13 +507,23 @@ int pit_entry_read(struct pit_entry *ptn, void *buf, u64 offset, u64 size)
 {
 	bdev_t *dev;
 	u64 num, start, ret;
-	char *block_device = malloc(7 * sizeof(char));
+	int res;
+	char *block_device;
 
-	snprintf(block_device, 7, "scsi%u", ptn->lun);
+	if (!ptn)
+		return ERR_NOT_VALID;
 
 	if(!pit_available)
 		return ERR_NOT_CONFIGURED;
 
+	res = pit_get_partial_range(ptn, offset, size, &start, &num);
+	if (res)
+		return res;
+
+	block_device = malloc(7 * sizeof(char));
+	if (!block_device)
+		return ERR_NO_MEMORY;
+	snprintf(block_device, 7, "scsi%u", ptn->lun);
 	dev = bio_open(block_device);
 
 	free(block_device);
@@ -469,25 +531,21 @@ int pit_entry_read(struct pit_entry *ptn, void *buf, u64 offset, u64 size)
 	if (!dev)
 		return ERR_IO;
 
-	/* Calculate partition geometry for UFS. */
-	start = (ptn->blkstart + offset) << 3;
-	num = ptn->blknum << 3;
-
 	ret = dev->new_read(dev, buf, start, num);
-
-	if(ret != ptn->blknum << 3)
-		return ERR_IO;
 
 	bio_close(dev);
 
-	return ret;
+	if(ret != num)
+		return ERR_IO;
+
+	return NO_ERROR;
 }
 
 /*
  * pit_entry_erase - erase a PIT entry partially
  * @ptn: PIT entry
- * @offset: offset to read from
- * @size: unused, kept for parity
+ * @offset: byte offset to erase from
+ * @size: bytes to erase, or 0 for the remainder of the partition
  *
  * Returns NO_ERROR if successful.
  * Otherwise, ERR_IO.
@@ -496,13 +554,23 @@ int pit_entry_erase(struct pit_entry *ptn, u64 offset, u64 size)
 {
 	bdev_t *dev;
 	u64 num, start, ret;
-	char *block_device = malloc(7 * sizeof(char));
+	int res;
+	char *block_device;
 
-	snprintf(block_device, 7, "scsi%u", ptn->lun);
+	if (!ptn)
+		return ERR_NOT_VALID;
 
 	if(!pit_available)
 		return ERR_NOT_CONFIGURED;
 
+	res = pit_get_partial_range(ptn, offset, size, &start, &num);
+	if (res)
+		return res;
+
+	block_device = malloc(7 * sizeof(char));
+	if (!block_device)
+		return ERR_NO_MEMORY;
+	snprintf(block_device, 7, "scsi%u", ptn->lun);
 	dev = bio_open(block_device);
 
 	free(block_device);
@@ -510,16 +578,12 @@ int pit_entry_erase(struct pit_entry *ptn, u64 offset, u64 size)
 	if (!dev)
 		return ERR_IO;
 
-	/* Calculate partition geometry for UFS. */
-	start = (ptn->blkstart + offset) << 3;
-	num = ptn->blknum << 3;
-
 	ret = dev->new_erase(dev, start, num);
 
-	if(ret != ptn->blknum << 3)
-		return ERR_IO;
-
 	bio_close(dev);
+
+	if(ret != num)
+		return ERR_IO;
 
 	return NO_ERROR;
 }
