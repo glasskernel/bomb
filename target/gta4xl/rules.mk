@@ -21,6 +21,7 @@ MKBOOTIMG_ARGS := \
 	--kernel_offset 0x00080000 \
 	--ramdisk_offset 0x04000000 \
 	--header_version 2 \
+	--dtb Resources/DTBs/gta4xl-boot-dt.dtb \
 	--cmdline "LK3RD BOOT IMAGE" \
 	--board "" \
 	--base 0x80000000
