@@ -13,11 +13,17 @@
 #include <lk/reg.h>
 #include <platform/fastboot.h>
 #include <platform/gpio.h>
+#include <platform/if_pmic_s2mu004.h>
 #include <platform/sfr.h>
 #include <target/board_info.h>
 #include <stdio.h>
 
 int cmd_boot(int argc, const cmd_args *argv);
+
+void target_init_for_usb(void)
+{
+	muic_sw_usb();
+}
 
 int do_fastboot(int argc, const cmd_args *argv)
 {
