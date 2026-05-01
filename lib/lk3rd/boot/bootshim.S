@@ -6,8 +6,12 @@
 #define BOOT_IMAGE_FLAGS 0
 #endif
 
+#ifndef LK3RD_COPY_SIZE
+#define LK3RD_COPY_SIZE LK3RD_SIZE
+#endif
+
 _Head:
-  adr   x1, _Payload    /* Set _Entry address */
+  adr   x16, _Payload   /* Set _Entry address */
   b     _Start          /* Jump to the real code */
 
 _ImageTextOffset:
@@ -28,7 +32,14 @@ _Lk3rdBase:
 _Lk3rdSize:
   .quad LK3RD_SIZE
 
+_Lk3rdCopySize:
+  .quad LK3RD_COPY_SIZE
+
 _Start:
+  mov   x7, x1
+  mov   x8, x2
+  mov   x9, x3
+
   mov   x11, CREATE_FDT_POINTER
   cmp   x11, 1
   b.ne  skip_dtb
@@ -36,11 +47,11 @@ _Start:
   str   x0, [x10]
 
 skip_dtb:
-  mov   x4, x1
+  mov   x4, x16
   ldr   x5, _Lk3rdBase
   cmp   x4, x5
-  beq   _Entry
-  ldr   x6,  _Lk3rdSize
+  beq   _RestoreArgs
+  ldr   x6, _Lk3rdCopySize
 
 _CopyLoop:
   ldp   x2, x3, [x4], #16
@@ -48,6 +59,15 @@ _CopyLoop:
   subs  x6, x6, #16
   b.ne  _CopyLoop
   ldr   x5, _Lk3rdBase
+  dsb   sy
+  ic    iallu
+  dsb   sy
+  isb
+
+_RestoreArgs:
+  mov   x1, x7
+  mov   x2, x8
+  mov   x3, x9
 
 _Entry:
   br    x5
