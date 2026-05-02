@@ -11,8 +11,8 @@
 #endif
 
 _Head:
-  adr   x16, _Payload   /* Set _Entry address */
-  b     _Start          /* Jump to the real code */
+  b     _Start          /* Linux arm64 images start with a branch. */
+  .long 0
 
 _ImageTextOffset:
   .quad BOOT_IMAGE_TEXT_OFFSET
@@ -36,6 +36,8 @@ _Lk3rdCopySize:
   .quad LK3RD_COPY_SIZE
 
 _Start:
+  adr   x16, _Payload
+
   mov   x7, x1
   mov   x8, x2
   mov   x9, x3
