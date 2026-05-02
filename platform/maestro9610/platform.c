@@ -36,6 +36,31 @@
 
 #define ARCH_TIMER_IRQ		30
 
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
+#define GTA4XL_EL1_L1_ENTRIES	512
+#define GTA4XL_EL1_BLOCK_SIZE	0x40000000ULL
+#define GTA4XL_EL1_DESC_BLOCK	0x1ULL
+#define GTA4XL_EL1_DESC_AF	(1ULL << 10)
+#define GTA4XL_EL1_DESC_SH_INNER	(3ULL << 8)
+#define GTA4XL_EL1_DESC_UXN	(1ULL << 54)
+#define GTA4XL_EL1_DESC_PXN	(1ULL << 53)
+#define GTA4XL_EL1_DESC_ATTR(n)	((unsigned long long)(n) << 2)
+#define GTA4XL_EL1_DESC_DEVICE	(GTA4XL_EL1_DESC_BLOCK | GTA4XL_EL1_DESC_AF | \
+				 GTA4XL_EL1_DESC_UXN | GTA4XL_EL1_DESC_PXN | \
+				 GTA4XL_EL1_DESC_ATTR(0))
+#define GTA4XL_EL1_DESC_NORMAL	(GTA4XL_EL1_DESC_BLOCK | GTA4XL_EL1_DESC_AF | \
+				 GTA4XL_EL1_DESC_SH_INNER | \
+				 GTA4XL_EL1_DESC_ATTR(2))
+#define GTA4XL_EL1_MAIR	((0x04ULL << 8) | (0xffULL << 16))
+#define GTA4XL_EL1_TCR		((2ULL << 32) | (1ULL << 23) | \
+				 (3ULL << 12) | (1ULL << 10) | \
+				 (1ULL << 8) | 32ULL)
+#define GTA4XL_EL1_SCTLR_M	0x1ULL
+
+static unsigned long long gta4xl_el1_l1_table[GTA4XL_EL1_L1_ENTRIES]
+	__attribute__((aligned(4096)));
+#endif
+
 void speedy_gpio_init(void);
 void xbootldo_gpio_init(void);
 void fg_init_s2mu004(void);
@@ -53,6 +78,65 @@ static char dram_type[16] = "UNKNOWN";
 static char dram_manufacturer[20] = "UNKNOWN";
 struct ram_info dram_info = {0, dram_manufacturer, dram_type};
 struct ufs_device_info ufs_info = {0, (char *)"UNKNOWN UFS MANUFACTURER"};
+
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
+static void gta4xl_clean_mmu_table(void)
+{
+	unsigned long long addr;
+	unsigned long long end = (unsigned long long)gta4xl_el1_l1_table +
+		sizeof(gta4xl_el1_l1_table);
+
+	for (addr = (unsigned long long)gta4xl_el1_l1_table; addr < end; addr += 64)
+		__asm__ volatile("dc cvac, %0" :: "r"(addr) : "memory");
+}
+
+static void gta4xl_enable_el1_identity_mmu(void)
+{
+	unsigned long long sctlr;
+	unsigned long long attrs;
+	unsigned long long base;
+	unsigned int i;
+
+	__asm__ volatile("mrs %0, sctlr_el1" : "=r"(sctlr));
+	if (sctlr & GTA4XL_EL1_SCTLR_M)
+		return;
+
+	for (i = 0; i < GTA4XL_EL1_L1_ENTRIES; i++)
+		gta4xl_el1_l1_table[i] = 0;
+
+	for (i = 0; i < 4; i++) {
+		base = (unsigned long long)i * GTA4XL_EL1_BLOCK_SIZE;
+		attrs = i < 2 ? GTA4XL_EL1_DESC_DEVICE : GTA4XL_EL1_DESC_NORMAL;
+		gta4xl_el1_l1_table[i] = base | attrs;
+	}
+
+	/*
+	 * Samsung uH/RKP panics on EL1 aborts while the EL1 MMU is off.
+	 * Keep LK3rd's physical addresses valid by installing a 1:1 map before
+	 * the first Exynos MMIO access.
+	 */
+	gta4xl_clean_mmu_table();
+	__asm__ volatile(
+		"dsb sy\n"
+		"msr mair_el1, %0\n"
+		"msr tcr_el1, %1\n"
+		"msr ttbr0_el1, %2\n"
+		"isb\n"
+		"tlbi vmalle1\n"
+		"dsb sy\n"
+		"isb\n"
+		:: "r"(GTA4XL_EL1_MAIR), "r"(GTA4XL_EL1_TCR),
+		   "r"(gta4xl_el1_l1_table)
+		: "memory");
+
+	sctlr |= GTA4XL_EL1_SCTLR_M;
+	__asm__ volatile(
+		"msr sctlr_el1, %0\n"
+		"isb\n"
+		:: "r"(sctlr)
+		: "memory");
+}
+#endif
 
 unsigned int get_charger_mode(void)
 {
@@ -257,7 +341,12 @@ void arm_generic_timer_disable(void)
 
 void platform_early_init(void)
 {
-	unsigned int rst_stat = readl(EXYNOS9610_POWER_RST_STAT);
+	unsigned int rst_stat;
+
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
+	gta4xl_enable_el1_identity_mmu();
+#endif
+	rst_stat = readl(EXYNOS9610_POWER_RST_STAT);
 
 	read_chip_id();
 #if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
@@ -291,7 +380,11 @@ void platform_init(void)
 	check_charger_connect();
 	display_pmic_info_s2mpu09();
 
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
+	printf("Secure Payload already loaded by S-Boot; skip reload.\n");
+#else
 	load_secure_payload();
+#endif
 
 	if (get_boot_device() == BOOT_UFS) {
 		ufs_alloc_memory();
