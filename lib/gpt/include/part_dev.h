@@ -15,7 +15,7 @@
 
 enum __boot_dev_id {
 	DEV_MMC		= 0,
-	DEV_UFS,
+	DEV_UFS		= 4,
 	DEV_NONE,
 };
 
