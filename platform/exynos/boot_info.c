@@ -18,12 +18,16 @@ static unsigned int get_boot_device_info(void)
 {
 	unsigned int boot_device_info;
 
+#if 0
 	if (*(unsigned int *)DRAM_BASE != 0xabcdef) {
 		/* Running on DRAM by TRACE32 */
 		boot_device_info = *(unsigned int *)BOOTDEVICE_ORDER_ADDR;
 	} else {
 		boot_device_info = find_second_boot();
 	}
+#else
+	boot_device_info = find_second_boot();
+#endif
 
 	return boot_device_info;
 }

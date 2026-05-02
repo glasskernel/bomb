@@ -400,6 +400,8 @@ void platform_init(void)
 		if (ret == 1)
 			ufs_init(2);
 	}
+
+	printf("PIT: Initializing...\n");
 	pit_init(get_boot_device());
 
 #ifdef CONFIG_EXYNOS_BOOTLOADER_DISPLAY
@@ -418,8 +420,8 @@ void platform_init(void)
 #endif
 	read_dram_info();
 
-	display_tmu_info();
-	display_trip_info();
+	/* display_tmu_info(); */
+	/* display_trip_info(); */
 	dfd_display_reboot_reason();
 	if (is_first_boot())
 		debug_snapshot_fdt_init();
