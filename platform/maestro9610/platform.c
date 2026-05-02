@@ -347,6 +347,9 @@ void platform_early_init(void)
 	gta4xl_enable_el1_identity_mmu();
 #endif
 	rst_stat = readl(EXYNOS9610_POWER_RST_STAT);
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
+	(void)rst_stat;
+#endif
 
 	read_chip_id();
 #if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
@@ -361,9 +364,13 @@ void platform_early_init(void)
 #endif
 	set_first_boot_device_info();
 
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
+	printf("Skipping blocking UART self-test on %s\n", CONFIG_BOARD_NAME);
+#else
 	if (is_first_boot() && !(rst_stat & (WARM_RESET | LITTLE_WDT_RESET)))
 		muic_sw_uart();
 	uart_test_function();
+#endif
 	printf("LK build date: %s, time: %s\n", __DATE__, __TIME__);
 
 	arm_gic_init();
