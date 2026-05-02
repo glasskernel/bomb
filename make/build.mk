@@ -33,7 +33,9 @@ $(ANDROID_BOOT_IMAGE): $(OUTBIN_LK3RD)
 $(OUTBIN_LK3RD) : $(OUTBIN)
 	@echo lk3rd: building final image base: $(MEMBASE): $@
 	rm lib/lk3rd/boot/bootshim.bin lib/lk3rd/boot/bootshim.elf -fv
-	cd lib/lk3rd/boot/ && CREATE_FDT_POINTER=$(CREATE_FDT_POINTER) FDT_POINTER_ADDRESS=$(FDT_POINTER_ADDRESS) LK3RD_BASE=$(MEMBASE) LK3RD_SIZE=0x200000 BOOT_IMAGE_TEXT_OFFSET=$(BOOT_IMAGE_TEXT_OFFSET) BOOT_IMAGE_FLAGS=$(BOOT_IMAGE_FLAGS) make
+	@lk3rd_copy_size=$$(printf '0x%x' $$(( ( $$(stat -c "%s" $(OUTBIN)) + 15 ) & ~15 ))); \
+		echo lk3rd: relocation copy size: $$lk3rd_copy_size; \
+		cd lib/lk3rd/boot/ && CREATE_FDT_POINTER=$(CREATE_FDT_POINTER) FDT_POINTER_ADDRESS=$(FDT_POINTER_ADDRESS) LK3RD_BASE=$(MEMBASE) LK3RD_SIZE=0x200000 LK3RD_COPY_SIZE=$$lk3rd_copy_size BOOT_IMAGE_TEXT_OFFSET=$(BOOT_IMAGE_TEXT_OFFSET) BOOT_IMAGE_FLAGS=$(BOOT_IMAGE_FLAGS) make
 	cat lib/lk3rd/boot/bootshim.bin $(OUTBIN) > $@
 	@echo lk3rd: all done! image can be found at $@
 
