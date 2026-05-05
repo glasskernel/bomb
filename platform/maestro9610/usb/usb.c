@@ -2,25 +2,37 @@
  * Generic DWC3 fastboot glue for Exynos 9610/9611.
  */
 
+#include <lk/err.h>
+#include <lk/init.h>
+#include <lk/list.h>
+#include <lk/reg.h>
 #include <dev/rpmb.h>
 #include <dev/scsi.h>
 #include <dev/usb/dwc3-config.h>
 #include <dev/usb/fastboot.h>
 #include <dev/usb/gadget.h>
 #include <dev/usb/phy-samsung-usb-cal.h>
-#include <lk/init.h>
-#include <lk/reg.h>
-#include <malloc.h>
+#include <lk/debug.h>
 #include <platform/chip_id.h>
 #include <platform/sfr.h>
-#include <stdio.h>
 #include <string.h>
+
+/* Forward declaration */
+void phy_usb_exynos_system_init(int num_phy_port, bool en);
 
 static const char vendor_str[] = "Samsung - " PLATFORM;
 static const char product_str[] = TARGET " - lk3rd";
 static char serial_id[17] = "No Serial";
 
 static unsigned int dwc3_isr_num = EXYNOS9610_USB_INT_NUM + 32;
+
+/*
+ * USB Controller power registers (relative to USB_LINK_BASE 0x13200000)
+ * Based on stock S-BOOT reverse engineering
+ */
+#define USB_REG_PWR1		0xC200
+#define USB_REG_PWR2		0xC2C0
+#define USB_PWR_BIT		(1 << 31)
 
 int gadget_get_vendor_string(void)
 {
@@ -95,6 +107,33 @@ int dwc3_plat_init(struct dwc3_plat_config *plat_config)
 	plat_config->num_intr = 1;
 	strcpy(plat_config->ssphy_type, "snps_gen1");
 
+	/*
+	 * Power on USB Link Controller.
+	 * Based on stock S-BOOT exynos_usb_init_core() sequence.
+	 * This must be done before DWC3 device init.
+	 */
+	u32 reg;
+
+	reg = readl((void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_PWR1));
+	reg |= USB_PWR_BIT;
+	writel(reg, (void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_PWR1));
+
+	reg = readl((void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_PWR2));
+	reg |= USB_PWR_BIT;
+	writel(reg, (void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_PWR2));
+
+	/* Call PHY/system init */
+	phy_usb_exynos_system_init(0, true);
+
+	/* Power off - stock bootloader does this too before reconfiguring */
+	reg = readl((void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_PWR1));
+	reg &= ~USB_PWR_BIT;
+	writel(reg, (void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_PWR1));
+
+	reg = readl((void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_PWR2));
+	reg &= ~USB_PWR_BIT;
+	writel(reg, (void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_PWR2));
+
 	return 0;
 }
 
@@ -150,6 +189,11 @@ LK_INIT_HOOK(register_phy_cal_infor, &register_phy_cal_infor,
 void phy_usb_exynos_system_init(int num_phy_port, bool en)
 {
 	writel(en ? 1 : 0, EXYNOS9610_POWER_BASE + EXYNOS9610_USB_PHY_CONTROL_OFFSET);
+
+	/*
+	 * Additional USB link power control - for USBDP combo PHY control
+	 * The EXYNOS9610_USB_PHY_CONTROL_OFFSET at 0x704 handles PMU-based isolation.
+	 */
 }
 
 void exynos_usb_cci_control(int on_off)
