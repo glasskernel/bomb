@@ -46,6 +46,7 @@ static unsigned int dwc3_isr_num = EXYNOS9610_USB_INT_NUM + 32;
 #define USB_REG_GCTL_KEEP_LOW	0x00000F3F
 #define USB_REG_GCTL_DEVICE	(2 << 12)
 #define USB_REG_GCTL_U2RST_ECN	(1 << 16)
+#define USB_REG_GCTL_MASTER_FILT_BYPASS	(1 << 18)
 #define USB_PHY_PMU_ENABLE	0x3
 
 int gadget_get_vendor_string(void)
@@ -131,7 +132,8 @@ static void sboot_usb_link_config(void)
 	reg = (reg & USB_REG_GCTL_KEEP_HIGH) |
 	      (reg & USB_REG_GCTL_KEEP_LOW) |
 	      USB_REG_GCTL_DEVICE |
-	      USB_REG_GCTL_U2RST_ECN;
+	      USB_REG_GCTL_U2RST_ECN |
+	      USB_REG_GCTL_MASTER_FILT_BYPASS;
 	writel(reg, (void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_GCTL));
 
 	writel(0x2222000f,
