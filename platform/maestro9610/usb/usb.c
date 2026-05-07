@@ -146,6 +146,7 @@ int dwc3_plat_init(struct dwc3_plat_config *plat_config)
 	plat_config->num_hs_phy = 1;
 	plat_config->array_intr = &dwc3_isr_num;
 	plat_config->num_intr = 1;
+	plat_config->config.m_eBurstLength = 0xf;
 	strcpy(plat_config->ssphy_type, "snps_gen1");
 
 	/*
@@ -186,6 +187,7 @@ static struct dwc3_dev_config dwc3_dev_config = {
 	.m_uCtrlBufSize = 128,
 	.m_ucU1ExitValue = 10,
 	.m_usU2ExitValue = 257,
+	.need_cache_ops = 1,
 };
 
 int dwc3_dev_plat_init(void **base_addr, struct dwc3_dev_config **plat_config)
