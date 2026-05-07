@@ -33,6 +33,20 @@ static unsigned int dwc3_isr_num = EXYNOS9610_USB_INT_NUM + 32;
 #define USB_REG_PWR1		0xC200
 #define USB_REG_PWR2		0xC2C0
 #define USB_PWR_BIT		(1 << 31)
+#define USB_REG_GSBUSCFG0	0xC100
+#define USB_REG_GSBUSCFG1	0xC104
+#define USB_REG_GCTL		0xC110
+#define USB_REG_GUSB2PHYCFG	0xC200
+#define USB_REG_GUSB3PIPECTL	0xC2C0
+#define USB_REG_USB2PHYCFG_MASK	0xFFFFC000
+#define USB_REG_USB2PHYCFG_KEEP	0x000002BF
+#define USB_REG_USB2PHYCFG_BL	0x00002400
+#define USB_REG_GUSB3_SUSPEND	(1 << 17)
+#define USB_REG_GCTL_KEEP_HIGH	0x0007C000
+#define USB_REG_GCTL_KEEP_LOW	0x00000F3F
+#define USB_REG_GCTL_DEVICE	(2 << 12)
+#define USB_REG_GCTL_U2RST_ECN	(1 << 16)
+#define USB_PHY_PMU_ENABLE	0x3
 
 int gadget_get_vendor_string(void)
 {
@@ -99,6 +113,33 @@ const char *fastboot_get_serialno_string(void)
 	return make_serial_string();
 }
 
+static void sboot_usb_link_config(void)
+{
+	u32 reg;
+
+	reg = readl((void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_GUSB2PHYCFG));
+	reg = (reg & USB_REG_USB2PHYCFG_MASK) |
+	      (reg & USB_REG_USB2PHYCFG_KEEP) |
+	      USB_REG_USB2PHYCFG_BL;
+	writel(reg, (void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_GUSB2PHYCFG));
+
+	reg = readl((void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_GUSB3PIPECTL));
+	reg &= ~USB_REG_GUSB3_SUSPEND;
+	writel(reg, (void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_GUSB3PIPECTL));
+
+	reg = readl((void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_GCTL));
+	reg = (reg & USB_REG_GCTL_KEEP_HIGH) |
+	      (reg & USB_REG_GCTL_KEEP_LOW) |
+	      USB_REG_GCTL_DEVICE |
+	      USB_REG_GCTL_U2RST_ECN;
+	writel(reg, (void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_GCTL));
+
+	writel(0x2222000f,
+	       (void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_GSBUSCFG0));
+	writel(0x00000f00,
+	       (void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_GSBUSCFG1));
+}
+
 int dwc3_plat_init(struct dwc3_plat_config *plat_config)
 {
 	plat_config->base = (void *)EXYNOS9610_USB_LINK_BASE;
@@ -133,6 +174,8 @@ int dwc3_plat_init(struct dwc3_plat_config *plat_config)
 	reg = readl((void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_PWR2));
 	reg &= ~USB_PWR_BIT;
 	writel(reg, (void *)(EXYNOS9610_USB_LINK_BASE + USB_REG_PWR2));
+
+	sboot_usb_link_config();
 
 	return 0;
 }
@@ -173,6 +216,7 @@ static struct exynos_usbphy_info usbphy_cal_info = {
 	.refsel = USBPHY_REFSEL_CLKCORE,
 	.not_used_vbus_pad = true,
 	.use_io_for_ovc = 0,
+	.common_block_disable = true,
 	.regs_base = (void *)EXYNOS9610_USB_PHY_BASE,
 	.tune_param = usbcal_20phy_tune,
 	.used_phy_port = 0,
@@ -188,7 +232,8 @@ LK_INIT_HOOK(register_phy_cal_infor, &register_phy_cal_infor,
 
 void phy_usb_exynos_system_init(int num_phy_port, bool en)
 {
-	writel(en ? 1 : 0, EXYNOS9610_POWER_BASE + EXYNOS9610_USB_PHY_CONTROL_OFFSET);
+	writel(en ? USB_PHY_PMU_ENABLE : 0,
+	       EXYNOS9610_POWER_BASE + EXYNOS9610_USB_PHY_CONTROL_OFFSET);
 
 	/*
 	 * Additional USB link power control - for USBDP combo PHY control
