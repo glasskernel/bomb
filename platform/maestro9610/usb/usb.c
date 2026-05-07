@@ -19,6 +19,8 @@
 
 /* Forward declaration */
 void phy_usb_exynos_system_init(int num_phy_port, bool en);
+void phy_exynos_usb_v3p1_enable_dp_pullup(struct exynos_usbphy_info *info);
+void phy_exynos_usb_v3p1_disable_dp_pullup(struct exynos_usbphy_info *info);
 
 static const char vendor_str[] = "Samsung - " PLATFORM;
 static const char product_str[] = TARGET " - lk3rd";
@@ -48,6 +50,26 @@ static unsigned int dwc3_isr_num = EXYNOS9610_USB_INT_NUM + 32;
 #define USB_REG_GCTL_U2RST_ECN	(1 << 16)
 #define USB_REG_GCTL_MASTER_FILT_BYPASS	(1 << 18)
 #define USB_PHY_PMU_ENABLE	0x3
+
+#define USB_PHY_REG_LINK_CTRL	0x04
+#define USB_PHY_REG_LINK_PORT	0x08
+#define USB_PHY_REG_LINK_DEBUG_L	0x0c
+#define USB_PHY_REG_LINK_DEBUG_H	0x10
+#define USB_PHY_REG_CLKRST	0x20
+#define USB_PHY_REG_PWR	0x24
+#define USB_PHY_REG_UTMI	0x50
+#define USB_PHY_REG_HSP	0x54
+#define USB_PHY_REG_HSP_TUNE	0x58
+#define USB_PHY_REG_HSP_TEST	0x5c
+#define USB_PHY_LINK_BUS_FILTER_BYPASS	(0xf << 4)
+#define USB_PHY_UTMI_FORCE_VBUSVALID	(1 << 5)
+#define USB_PHY_UTMI_FORCE_BVALID	(1 << 4)
+#define USB_PHY_UTMI_DP_PULLDOWN	(1 << 3)
+#define USB_PHY_UTMI_DM_PULLDOWN	(1 << 2)
+#define USB_PHY_UTMI_FORCE_SUSPEND	(1 << 1)
+#define USB_PHY_UTMI_FORCE_SLEEP	(1 << 0)
+#define USB_PHY_HSP_VBUSVLDEXTSEL	(1 << 13)
+#define USB_PHY_HSP_VBUSVLDEXT	(1 << 12)
 
 int gadget_get_vendor_string(void)
 {
@@ -226,6 +248,65 @@ static struct exynos_usbphy_info usbphy_cal_info = {
 	.used_phy_port = 0,
 	.hs_rewa = 1,
 };
+
+static void maestro9610_usb_phy_force_attach(void)
+{
+	void *base = usbphy_cal_info.regs_base;
+	u32 reg;
+
+	reg = readl(base + USB_PHY_REG_LINK_CTRL);
+	reg |= USB_PHY_LINK_BUS_FILTER_BYPASS;
+	writel(reg, base + USB_PHY_REG_LINK_CTRL);
+
+	reg = readl(base + USB_PHY_REG_UTMI);
+	reg |= USB_PHY_UTMI_FORCE_BVALID | USB_PHY_UTMI_FORCE_VBUSVALID;
+	reg &= ~(USB_PHY_UTMI_FORCE_SUSPEND |
+		 USB_PHY_UTMI_FORCE_SLEEP |
+		 USB_PHY_UTMI_DP_PULLDOWN |
+		 USB_PHY_UTMI_DM_PULLDOWN);
+	writel(reg, base + USB_PHY_REG_UTMI);
+
+	reg = readl(base + USB_PHY_REG_HSP);
+	reg |= USB_PHY_HSP_VBUSVLDEXTSEL | USB_PHY_HSP_VBUSVLDEXT;
+	writel(reg, base + USB_PHY_REG_HSP);
+}
+
+static void maestro9610_usb_phy_dump_state(void)
+{
+	void *base = usbphy_cal_info.regs_base;
+
+	printf("[phy_diag] LINK_CTRL=0x%08x LINK_PORT=0x%08x DEBUG=%08x/%08x\n",
+	       readl(base + USB_PHY_REG_LINK_CTRL),
+	       readl(base + USB_PHY_REG_LINK_PORT),
+	       readl(base + USB_PHY_REG_LINK_DEBUG_H),
+	       readl(base + USB_PHY_REG_LINK_DEBUG_L));
+	printf("[phy_diag] CLKRST=0x%08x PWR=0x%08x UTMI=0x%08x HSP=0x%08x\n",
+	       readl(base + USB_PHY_REG_CLKRST),
+	       readl(base + USB_PHY_REG_PWR),
+	       readl(base + USB_PHY_REG_UTMI),
+	       readl(base + USB_PHY_REG_HSP));
+	printf("[phy_diag] HSP_TUNE=0x%08x HSP_TEST=0x%08x\n",
+	       readl(base + USB_PHY_REG_HSP_TUNE),
+	       readl(base + USB_PHY_REG_HSP_TEST));
+}
+
+void dwc3_plat_phy_dp_pullup(bool en_pullup)
+{
+	if (en_pullup) {
+		maestro9610_usb_phy_force_attach();
+		phy_exynos_usb_v3p1_enable_dp_pullup(&usbphy_cal_info);
+	} else {
+		phy_exynos_usb_v3p1_disable_dp_pullup(&usbphy_cal_info);
+	}
+
+	printf("[phy_diag] dp_pullup=%d\n", en_pullup);
+	maestro9610_usb_phy_dump_state();
+}
+
+void dwc3_dev_plat_dump_state(void)
+{
+	maestro9610_usb_phy_dump_state();
+}
 
 static void register_phy_cal_infor(uint level)
 {
