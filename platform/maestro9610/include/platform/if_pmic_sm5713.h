@@ -13,6 +13,8 @@
 
 #define SM5713_MUIC_W_ADDR		0x4A
 #define SM5713_MUIC_R_ADDR		0x4B
+#define SM5713_CCIC_W_ADDR		0x66
+#define SM5713_CCIC_R_ADDR		0x67
 
 #define SM5713_MUIC_REG_INT1		0x01
 #define SM5713_MUIC_REG_INT2		0x02
@@ -25,12 +27,16 @@
 #define SM5713_MUIC_REG_ADC		0x51
 #define SM5713_MUIC_REG_CFG1		0x68
 
+#define SM5713_CCIC_REG_ID		0x00
+#define SM5713_CCIC_REG_SYSCTRL	0x1B
+
 void IIC_SM5713_ESetport(void);
 void IIC_SM5713_ERead(unsigned char ChipId,
 		unsigned char IicAddr, unsigned char *IicData);
 void IIC_SM5713_EWrite(unsigned char ChipId,
 		unsigned char IicAddr, unsigned char IicData);
 void sm5713_muic_init(void);
+void sm5713_ccic_init(void);
 void muic_sw_usb(void);
 void muic_sw_uart(void);
 int muic_get_vbus(void);
