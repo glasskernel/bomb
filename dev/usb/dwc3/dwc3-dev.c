@@ -90,6 +90,117 @@ extern void dwc3_dev_glue_ss_phy_rest(void *handle);
 extern int dwc3_dev_glue_get_logic_trace_val(void *, int, u64 *);
 extern int dwc3_dev_glue_ask_wa(void *, char *);
 
+static const char *dwc3_diag_link_name(unsigned int link_state)
+{
+	switch (link_state) {
+	case LNKSTS_U0:
+		return "U0/ON";
+	case LNKSTS_U1:
+		return "U1";
+	case LNKSTS_U2:
+		return "U2/SLEEP";
+	case LNKSTS_U3:
+		return "U3/SUSPEND";
+	case LNKSTS_SS_DIS:
+		return "SS_DISABLED";
+	case LNKSTS_RX_DET:
+		return "RX_DETECT";
+	case LNKSTS_SS_INACT:
+		return "SS_INACTIVE";
+	case LNKSTS_POLL:
+		return "POLLING";
+	case LNKSTS_RECOV:
+		return "RECOVERY/REMOTE_WAKEUP";
+	case LNKSTS_HRESET:
+		return "HOT_RESET";
+	case LNKSTS_CMPLY:
+		return "COMPLIANCE";
+	case LNKSTS_LPBK:
+		return "LOOPBACK";
+	case LNKSTS_RESET:
+		return "RESET";
+	case LNKSTS_RESUME:
+		return "RESUME";
+	default:
+		return "UNKNOWN";
+	}
+}
+
+static const char *dwc3_diag_speed_name(unsigned int speed)
+{
+	switch (speed) {
+	case 0:
+		return "high";
+	case 1:
+		return "full";
+	case 4:
+		return "super";
+	default:
+		return "unknown";
+	}
+}
+
+static void dwc3_dev_dump_state(DWC3_DEV_HANDLER dwc3_dev_h,
+				const char *reason)
+{
+	USB3_REG_DCTL_o dctl;
+	USB3_REG_DSTS_o dsts;
+	u32 gctl;
+	u32 gsts;
+	u32 gusb2;
+	u32 gusb3;
+	u32 gsbus0;
+	u32 gsbus1;
+	u32 dcfg;
+	u32 devten;
+	u32 gevntadr_lo;
+	u32 gevntadr_hi;
+	u32 gevntsiz;
+	u32 gevntcnt;
+
+	dctl.data = DWC3_REG_RD32(rDCTL);
+	dsts.data = DWC3_REG_RD32(rDSTS);
+	gctl = DWC3_REG_RD32(rGCTL);
+	gsts = DWC3_REG_RD32(rGSTS);
+	gusb2 = DWC3_REG_RD32(rGUSB2PHYCFG);
+	gusb3 = DWC3_REG_RD32(rGUSB3PIPECTL);
+	gsbus0 = DWC3_REG_RD32(rGSBUSCFG0);
+	gsbus1 = DWC3_REG_RD32(rGSBUSCFG1);
+	dcfg = DWC3_REG_RD32(rDCFG);
+	devten = DWC3_REG_RD32(rDEVTEN);
+	gevntadr_lo = DWC3_REG_RD32(rGEVNTADR_LO0);
+	gevntadr_hi = DWC3_REG_RD32(rGEVNTADR_HI0);
+	gevntsiz = DWC3_REG_RD32(rGEVNTSIZ0);
+	gevntcnt = DWC3_REG_RD32(rGEVNTCOUNT0);
+
+	printf("[dwc3_diag] %s\n", reason);
+	printf("[dwc3_diag] DCTL=0x%08x run=%u core_rst=%u light_rst=%u req=0x%x trgt=0x%x\n",
+	       dctl.data, dctl.b.run_stop, dctl.b.core_soft_reset,
+	       dctl.b.LSftRst, dctl.b.ULStChngReq, dctl.b.TrgtULSt);
+	printf("[dwc3_diag] DSTS=0x%08x halted=%u idle=%u link=0x%x(%s) speed=0x%x(%s) soffn=0x%x\n",
+	       dsts.data, dsts.b.dev_ctrl_halted, dsts.b.core_idle,
+	       dsts.b.usb_link_sts,
+	       dwc3_diag_link_name(dsts.b.usb_link_sts),
+	       dsts.b.connect_speed,
+	       dwc3_diag_speed_name(dsts.b.connect_speed), dsts.b.soffn);
+	printf("[dwc3_diag] GSTS=0x%08x GCTL=0x%08x GUSB2=0x%08x GUSB3=0x%08x\n",
+	       gsts, gctl, gusb2, gusb3);
+	printf("[dwc3_diag] GSBUS0=0x%08x GSBUS1=0x%08x DCFG=0x%08x DEVTEN=0x%08x\n",
+	       gsbus0, gsbus1, dcfg, devten);
+	printf("[dwc3_diag] EVENT adr=%08x%08x siz=0x%08x cnt=0x%08x usb_config=%d retry=%d\n",
+	       gevntadr_hi, gevntadr_lo, gevntsiz, gevntcnt,
+	       usb_config_state, retry_cnt);
+
+	if (!(dctl.b.run_stop))
+		printf("[dwc3_diag] reason: controller run/stop is not set\n");
+	else if (dsts.b.dev_ctrl_halted)
+		printf("[dwc3_diag] reason: controller is halted after run/stop\n");
+	else if (!gevntcnt)
+		printf("[dwc3_diag] reason: no DWC3 events pending; likely no host reset/connect reached the core\n");
+	else if (!usb_config_state)
+		printf("[dwc3_diag] reason: events exist, but host never completed SET_CONFIGURATION\n");
+}
+
 static void *dwc3_calloc_align(u32 size, u32 align)
 {
 	u64 uAddr, uTemp1, uTemp2, uTemp3;
@@ -1216,21 +1327,31 @@ void *dwc3_dev_init_once(void)
 
 static enum handler_return
 dwc3_dev_config_check(struct timer *timer, unsigned int now, void *arg) {
+	DWC3_DEV_HANDLER dwc3_dev_h = arg;
+	char reason[64];
+
 	if (!usb_config_state) {
 		muic_sw_usb();
 		mdelay(50);
-		printf("%s: DCTL runstop cnt %d!\n", __func__, retry_cnt);
-		dwc3_dev_set_rs(arg, false);
+		snprintf(reason, sizeof(reason), "%s retry %d before run/stop toggle",
+			 __func__, retry_cnt);
+		dwc3_dev_dump_state(dwc3_dev_h, reason);
+		dwc3_dev_set_rs(dwc3_dev_h, false);
 		mdelay(50);
-		dwc3_dev_set_rs(arg, true);
+		dwc3_dev_set_rs(dwc3_dev_h, true);
+		snprintf(reason, sizeof(reason), "%s retry %d after run/stop toggle",
+			 __func__, retry_cnt);
+		dwc3_dev_dump_state(dwc3_dev_h, reason);
 	} else {
 		printf("%s: configuration done. delete timer!!\n", __func__);
+		dwc3_dev_dump_state(dwc3_dev_h, "configuration complete");
 		timer_cancel(&config_timer);
 		retry_cnt = 0;
 	}
 
 	if (retry_cnt >= 3) {
 		printf("%s: retry all fail!\n", __func__);
+		dwc3_dev_dump_state(dwc3_dev_h, "retry all fail");
 		timer_cancel(&config_timer);
 		retry_cnt = 0;
 	}
@@ -1368,10 +1489,12 @@ int dwc3_dev_init(void *dev_handle)
 
 	/* true Deivce */
 	dwc3_dev_set_rs(dwc3_dev_h, true);
+	dwc3_dev_dump_state(dwc3_dev_h, "after initial run/stop enable");
 
 	dwc3_dev_h->fastboot_mode = true;
 
 	muic_sw_usb();
+	dwc3_dev_dump_state(dwc3_dev_h, "after MUIC USB switch");
 	timer_initialize(&config_timer);
 	timer_set_periodic(&config_timer, 2000, dwc3_dev_config_check, dwc3_dev_h);
 
