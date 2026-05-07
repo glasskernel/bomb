@@ -21,8 +21,6 @@ MODULE_SRCS += \
 	$(LOCAL_DIR)/security/otp_v20.c \
 	$(LOCAL_DIR)/speedy/speedy.c \
 	$(LOCAL_DIR)/pmic/pmic_s2mpu09.c \
-	$(LOCAL_DIR)/pmic/fg_s2mu004.c \
-	$(LOCAL_DIR)/pmic/if_pmic_s2mu004.c \
 	$(LOCAL_DIR)/ab_update/ab_update.c \
 	$(LOCAL_DIR)/lock/lock.c \
 	$(LOCAL_DIR)/gpio_init.S \
@@ -40,9 +38,12 @@ MODULE_SRCS += \
 	$(LOCAL_DIR)/../exynos/boot_info.c \
 	$(LOCAL_DIR)/../exynos/gpio.c \
 	$(LOCAL_DIR)/security/cm_api.c \
+	$(LOCAL_DIR)/pmic/if_pmic_sm5713.c \
 	$(LOCAL_DIR)/usb/usb.c
 else
 MODULE_SRCS += \
+	$(LOCAL_DIR)/pmic/fg_s2mu004.c \
+	$(LOCAL_DIR)/pmic/if_pmic_s2mu004.c \
 	$(LOCAL_DIR)/fastboot/usbd3-ss.c \
 	$(LOCAL_DIR)/fastboot/phy-exynos-usb3p1.c \
 	$(LOCAL_DIR)/fastboot/fastboot_cmd.c \

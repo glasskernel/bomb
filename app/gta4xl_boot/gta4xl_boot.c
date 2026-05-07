@@ -13,7 +13,7 @@
 #include <lk/reg.h>
 #include <platform/fastboot.h>
 #include <platform/gpio.h>
-#include <platform/if_pmic_s2mu004.h>
+#include <platform/if_pmic_sm5713.h>
 #include <platform/sfr.h>
 #include <target/board_info.h>
 #include <stdio.h>

@@ -21,7 +21,11 @@
 #include <platform/smc.h>
 #include <platform/speedy.h>
 #include <platform/pmic_s2mpu09.h>
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
+#include <platform/if_pmic_sm5713.h>
+#else
 #include <platform/if_pmic_s2mu004.h>
+#endif
 #include <platform/tmu.h>
 #include <platform/dfd.h>
 #include <platform/ldfw.h>
@@ -63,7 +67,9 @@ static unsigned long long gta4xl_el1_l1_table[GTA4XL_EL1_L1_ENTRIES]
 
 void speedy_gpio_init(void);
 void xbootldo_gpio_init(void);
+#if !defined(TARGET_GTA4XL) && !defined(TARGET_GTA4XLWIFI)
 void fg_init_s2mu004(void);
+#endif
 
 unsigned int s5p_chip_id[4] = {0x0, 0x0, 0x0, 0x0};
 unsigned int charger_mode = 0;
@@ -383,7 +389,11 @@ void platform_init(void)
 	u32 ret = 0;
 
 	pmic_init();
+#if defined(TARGET_GTA4XL) || defined(TARGET_GTA4XLWIFI)
+	sm5713_muic_init();
+#else
 	fg_init_s2mu004();
+#endif
 	check_charger_connect();
 	display_pmic_info_s2mpu09();
 
