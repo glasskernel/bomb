@@ -19,9 +19,14 @@
 #define GPP0DAT		*(volatile unsigned int *)(GPP0BASE + 0x4)
 #define GPP0PUD		*(volatile unsigned int *)(GPP0BASE + 0x8)
 
-/* SDA: GPP0_2, SCL: GPP0_3 */
+/* MUIC: SDA GPP0_2, SCL GPP0_3. CCIC: SDA GPP0_0, SCL GPP0_1. */
 #define GPIO_DAT_SM5713	GPP0DAT
-#define GPIO_DAT_SHIFT		(2)
+#define GPIO_DAT_SHIFT_MUIC	(2)
+#define GPIO_DAT_SHIFT_CCIC	(0)
+
+static unsigned int iic_sm5713_gpio_shift = GPIO_DAT_SHIFT_MUIC;
+
+#define GPIO_DAT_SHIFT		iic_sm5713_gpio_shift
 #define GPIO_PUD_SM5713	GPP0PUD &= ~(0xff << (GPIO_DAT_SHIFT * 4))
 
 #define IIC_SM5713_ESCL_Hi	GPP0DAT |= (0x1 << (GPIO_DAT_SHIFT + 1))
@@ -144,8 +149,10 @@ static void IIC_SM5713_EAck_read(void)
 	IIC_SM5713_SCLL_SDAL();
 }
 
-void IIC_SM5713_ESetport(void)
+static void IIC_SM5713_ESetportShift(unsigned int shift)
 {
+	iic_sm5713_gpio_shift = shift;
+
 	GPIO_PUD_SM5713;
 
 	IIC_SM5713_ESCL_Hi;
@@ -155,6 +162,16 @@ void IIC_SM5713_ESetport(void)
 	IIC_SM5713_ESDA_OUTP;
 
 	Delay();
+}
+
+void IIC_SM5713_ESetport(void)
+{
+	IIC_SM5713_ESetportShift(GPIO_DAT_SHIFT_MUIC);
+}
+
+static void IIC_SM5713_CC_ESetport(void)
+{
+	IIC_SM5713_ESetportShift(GPIO_DAT_SHIFT_CCIC);
 }
 
 void IIC_SM5713_EWrite(unsigned char ChipId,
@@ -302,6 +319,23 @@ void sm5713_muic_init(void)
 		IIC_SM5713_EWrite(SM5713_MUIC_W_ADDR, SM5713_MUIC_REG_DP_RESET, 0x00);
 		printf("[MUIC] SM5713 DP reset\n");
 	}
+
+	sm5713_ccic_init();
+}
+
+void sm5713_ccic_init(void)
+{
+	unsigned char id = 0;
+	unsigned char sysctrl = 0;
+
+	IIC_SM5713_CC_ESetport();
+
+	IIC_SM5713_EWrite(SM5713_CCIC_W_ADDR, SM5713_CCIC_REG_SYSCTRL, 0x15);
+	IIC_SM5713_ERead(SM5713_CCIC_R_ADDR, SM5713_CCIC_REG_SYSCTRL, &sysctrl);
+	IIC_SM5713_ERead(SM5713_CCIC_R_ADDR, SM5713_CCIC_REG_ID, &id);
+	printf("[CCIC] SM5713 SYSCTRL:0x%02x ID:0x%02x\n", sysctrl, id);
+
+	IIC_SM5713_ESetport();
 }
 
 void muic_sw_usb(void)
