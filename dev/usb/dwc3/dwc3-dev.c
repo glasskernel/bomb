@@ -37,6 +37,7 @@ struct timer config_timer;
 int retry_cnt;
 
 void muic_sw_usb(void);
+__attribute__((weak)) void dwc3_dev_plat_dump_state(void) {}
 static enum handler_return dwc3_dev_config_check(struct timer *timer, unsigned int now, void *arg);
 
 enum dwc3_dev_dbg_bit {
@@ -199,6 +200,8 @@ static void dwc3_dev_dump_state(DWC3_DEV_HANDLER dwc3_dev_h,
 		printf("[dwc3_diag] reason: no DWC3 events pending; likely no host reset/connect reached the core\n");
 	else if (!usb_config_state)
 		printf("[dwc3_diag] reason: events exist, but host never completed SET_CONFIGURATION\n");
+
+	dwc3_dev_plat_dump_state();
 }
 
 static void *dwc3_calloc_align(u32 size, u32 align)
@@ -1331,12 +1334,14 @@ dwc3_dev_config_check(struct timer *timer, unsigned int now, void *arg) {
 	char reason[64];
 
 	if (!usb_config_state) {
-		muic_sw_usb();
-		mdelay(50);
 		snprintf(reason, sizeof(reason), "%s retry %d before run/stop toggle",
 			 __func__, retry_cnt);
 		dwc3_dev_dump_state(dwc3_dev_h, reason);
+		dwc3_glb_phy_dp_pullup_en(dwc3_dev_h->glb_dev_h, false);
 		dwc3_dev_set_rs(dwc3_dev_h, false);
+		mdelay(50);
+		muic_sw_usb();
+		dwc3_glb_phy_dp_pullup_en(dwc3_dev_h->glb_dev_h, true);
 		mdelay(50);
 		dwc3_dev_set_rs(dwc3_dev_h, true);
 		snprintf(reason, sizeof(reason), "%s retry %d after run/stop toggle",
@@ -1487,14 +1492,14 @@ int dwc3_dev_init(void *dev_handle)
 	DCTL.b.AcceptU2Ena = false;
 	DWC3_REG_WR32(rDCTL, DCTL.data);
 
-	/* true Deivce */
-	dwc3_dev_set_rs(dwc3_dev_h, true);
-	dwc3_dev_dump_state(dwc3_dev_h, "after initial run/stop enable");
-
 	dwc3_dev_h->fastboot_mode = true;
 
 	muic_sw_usb();
-	dwc3_dev_dump_state(dwc3_dev_h, "after MUIC USB switch");
+	dwc3_glb_phy_dp_pullup_en(dwc3_dev_h->glb_dev_h, true);
+
+	/* true Deivce */
+	dwc3_dev_set_rs(dwc3_dev_h, true);
+	dwc3_dev_dump_state(dwc3_dev_h, "after MUIC USB switch and run/stop enable");
 	timer_initialize(&config_timer);
 	timer_set_periodic(&config_timer, 2000, dwc3_dev_config_check, dwc3_dev_h);
 
