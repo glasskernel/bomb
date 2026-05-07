@@ -745,7 +745,10 @@ int usb3_glb_deinit_early(struct dwc3_glb_dev *glb_dev, USB_OPMODE mode)
 
 }
 
+__attribute__((weak)) void dwc3_plat_phy_dp_pullup(bool en_pullup) {}
+
 void dwc3_glb_phy_dp_pullup_en(struct dwc3_glb_dev *glb_dev, bool en_pullup)
 {
-
+	(void)glb_dev;
+	dwc3_plat_phy_dp_pullup(en_pullup);
 }
